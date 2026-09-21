@@ -25,6 +25,7 @@ def init_db():
             password TEXT,
             role TEXT,
             status TEXT,
+            plan TEXT,
             txn_id TEXT
         )
     """)
@@ -36,15 +37,20 @@ conn = init_db()
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-def add_user(username, password, role="client", status="pending", txn_id=""):
+def add_user(username, password, role="client", status="pending", plan="Monthly (₹499)", txn_id=""):
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?, ?)", 
-              (username, hash_pw(password), role, status, txn_id))
+    c.execute("INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?, ?, ?)", 
+              (username, hash_pw(password), role, status, plan, txn_id))
+    conn.commit()
+
+def update_user_payment(username, txn_id):
+    c = conn.cursor()
+    c.execute("UPDATE users SET txn_id=? WHERE username=?", (txn_id, username))
     conn.commit()
 
 def verify_user(username, password):
     c = conn.cursor()
-    c.execute("SELECT role, status FROM users WHERE username=? AND password=?", 
+    c.execute("SELECT role, status, plan FROM users WHERE username=? AND password=?", 
               (username, hash_pw(password)))
     return c.fetchone()
 
@@ -52,7 +58,7 @@ def verify_user(username, password):
 c = conn.cursor()
 c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
-    add_user("tanmay_admin", "admin123", role="admin", status="approved")
+    add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime", txn_id="ADMIN")
 
 # ----------------- TALLY DATA PARSER ENGINE -----------------
 def load_tally_file(uploaded_file):
@@ -104,7 +110,7 @@ def load_tally_file(uploaded_file):
             
     df = df.rename(columns=col_rename)
     
-    # Solve PyArrow Duplicate Column Names Crash
+    # Solve Duplicate Column Names Crash
     cols = pd.Series(df.columns)
     for dup in cols[cols.duplicated()].unique():
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
@@ -131,6 +137,12 @@ if "logged_in" not in st.session_state:
     st.session_state["username"] = ""
     st.session_state["role"] = ""
     st.session_state["status"] = ""
+    st.session_state["plan"] = ""
+
+if "reg_success_user" not in st.session_state:
+    st.session_state["reg_success_user"] = None
+    st.session_state["reg_plan_amt"] = 0
+    st.session_state["reg_plan_name"] = ""
 
 def generate_upi_qr(vpa, name, amount):
     upi_url = f"upi://pay?pa={vpa}&pn={quote(name)}&am={amount}&cu=INR"
@@ -155,7 +167,7 @@ if not st.session_state["logged_in"]:
         if st.button("Log In", use_container_width=True):
             res = verify_user(u, p)
             if res:
-                role, status = res
+                role, status, plan = res
                 if status == "pending":
                     st.warning("⚠️ Aapka payment verification pending hai. Admin approval ke baad dashboard open hoga.")
                 else:
@@ -163,27 +175,60 @@ if not st.session_state["logged_in"]:
                     st.session_state["username"] = u
                     st.session_state["role"] = role
                     st.session_state["status"] = status
+                    st.session_state["plan"] = plan
                     st.rerun()
             else:
                 st.error("Invalid Username ya Password.")
 
     elif choice == "Register / Subscribe":
-        st.subheader("New Executive Subscription")
-        new_u = st.text_input("Choose Username")
-        new_p = st.text_input("Choose Password", type="password")
-        st.markdown("#### Annual Access Plan: ₹999 / Year")
-        st.write("Scan the QR code below and submit the transaction UTR number:")
-        
-        qr_bytes = generate_upi_qr("your-upi-id@okaxis", "Business Intelligence", "999")
-        st.image(qr_bytes, caption="UPI Payment QR - ₹999")
-        
-        txn_id = st.text_input("Enter 12-digit UPI / UTR Transaction Number")
-        if st.button("Submit Subscription", use_container_width=True):
-            if new_u and new_p and txn_id:
-                add_user(new_u, new_p, role="client", status="pending", txn_id=txn_id)
-                st.success("Registration aur Payment ID receive ho gayi hai! Admin approval ke baad account activate ho jayega.")
-            else:
-                st.error("Kripya sabhi fields dhyan se bharein.")
+        # Check agar user ne abhi register click kiya hai
+        if st.session_state["reg_success_user"] is None:
+            st.subheader("Step 1: Account & Plan Selection")
+            new_u = st.text_input("Choose Username")
+            new_p = st.text_input("Choose Password", type="password")
+            plan_option = st.radio(
+                "Choose Subscription Plan:",
+                ["Monthly Plan — ₹499 / Month", "Yearly Plan — ₹2,999 / Year (Best Value)"]
+            )
+            
+            if st.button("Proceed to Payment & QR", use_container_width=True):
+                if new_u and new_p:
+                    c = conn.cursor()
+                    c.execute("SELECT * FROM users WHERE username=?", (new_u,))
+                    if c.fetchone():
+                        st.error("Yeh Username pehle se maujood hai. Kripya doosra chunein.")
+                    else:
+                        amt = 499 if "499" in plan_option else 2999
+                        p_name = "Monthly (₹499)" if amt == 499 else "Yearly (₹2999)"
+                        add_user(new_u, new_p, role="client", status="pending", plan=p_name, txn_id="")
+                        st.session_state["reg_success_user"] = new_u
+                        st.session_state["reg_plan_amt"] = amt
+                        st.session_state["reg_plan_name"] = p_name
+                        st.rerun()
+                else:
+                    st.error("Kripya Username aur Password dono fill karein.")
+        else:
+            # Registration ke baad QR aur Payment submit ka screen
+            st.success(f"✅ Account create ho gaya: **{st.session_state['reg_success_user']}**")
+            st.subheader(f"Step 2: Pay for {st.session_state['reg_plan_name']}")
+            st.write(f"Payment Amount: **₹{st.session_state['reg_plan_amt']}**")
+            st.write("UPI ID: `tanmayagarwal776@okhdfcbank`")
+            
+            qr_bytes = generate_upi_qr(
+                "tanmayagarwal776@okhdfcbank", 
+                "Tanmay Agarwal", 
+                st.session_state['reg_plan_amt']
+            )
+            st.image(qr_bytes, caption=f"Scan to Pay ₹{st.session_state['reg_plan_amt']}")
+            
+            txn_id = st.text_input("Payment ke baad 12-digit UPI / UTR Transaction Ref ID daalein:")
+            if st.button("Submit Transaction ID", use_container_width=True):
+                if txn_id.strip():
+                    update_user_payment(st.session_state["reg_success_user"], txn_id.strip())
+                    st.success("🎉 Payment details receive ho gayi hain! Admin approve karte hi aap Login kar sakenge.")
+                    st.session_state["reg_success_user"] = None
+                else:
+                    st.error("Kripya valid UTR / Transaction number daalein.")
     st.stop()
 
 # ----------------- MAIN PORTAL (LOGGED IN) -----------------
@@ -203,14 +248,15 @@ if st.session_state["role"] == "admin":
     if admin_mode == "Manage Subscriptions":
         st.title("💳 Subscription & Payment Verification Panel")
         c = conn.cursor()
-        pending_users = c.execute("SELECT username, txn_id, status FROM users WHERE status='pending'").fetchall()
+        pending_users = c.execute("SELECT username, plan, txn_id, status FROM users WHERE status='pending'").fetchall()
         
         if pending_users:
             st.info(f"Total Pending Requests: {len(pending_users)}")
-            for u_name, tx_id, stat in pending_users:
-                col_u, col_tx, col_btn = st.columns([2, 3, 2])
+            for u_name, u_plan, tx_id, stat in pending_users:
+                col_u, col_pl, col_tx, col_btn = st.columns([2, 2, 3, 2])
                 col_u.write(f"**User:** {u_name}")
-                col_tx.write(f"**Txn Ref:** `{tx_id}`")
+                col_pl.write(f"**Plan:** {u_plan}")
+                col_tx.write(f"**Txn Ref:** `{tx_id if tx_id else 'Awaiting'}`")
                 if col_btn.button(f"Approve {u_name}", key=f"appr_{u_name}"):
                     c.execute("UPDATE users SET status='approved' WHERE username=?", (u_name,))
                     conn.commit()
@@ -308,4 +354,3 @@ if uploaded_files:
             st.info("Sales Register upload karein taaki transaction analysis render ho sake.")
 else:
     st.info("ℹ️ Kripya Tally ki reports (Sales Register, Bills Receivable, DayBook) sidebar se upload karein.")
-    st.info("ℹ️ Tally ki reports (Sales Register, Receivables ya DayBook) sidebar se upload karein.")
