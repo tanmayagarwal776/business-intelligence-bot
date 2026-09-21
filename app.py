@@ -8,6 +8,32 @@ import qrcode
 from io import BytesIO
 from urllib.parse import quote
 
+def load_tally_file(uploaded_file):
+    if uploaded_file.name.endswith('.csv'):
+        raw_df = pd.read_csv(uploaded_file, header=None)
+    else:
+        raw_df = pd.read_excel(uploaded_file, header=None)
+    
+    header_idx = None
+    target_keywords = ['date', 'particulars', 'party', 'vch no', 'voucher', 'debit', 'credit', 'amount']
+    
+    for idx, row in raw_df.iterrows():
+        row_values = [str(val).strip().lower() for val in row.values if pd.notna(val)]
+        matches = [kw for kw in target_keywords if any(kw in val for val in row_values)]
+        if len(matches) >= 2:
+            header_idx = idx
+            break
+            
+    if header_idx is not None:
+        new_header = raw_df.iloc[header_idx].values
+        df = raw_df.iloc[header_idx + 1:].copy()
+        df.columns = [str(col).strip() if pd.notna(col) else f"Col_{i}" for i, col in enumerate(new_header)]
+    else:
+        df = raw_df.copy()
+        
+    df = df.dropna(how='all')
+    df = df.reset_index(drop=True)
+    return df
 st.set_page_config(page_title="Business Intelligence Bot", page_icon="💼", layout="wide")
 
 # ==========================================
@@ -206,7 +232,7 @@ else:
 
     if uploaded_file is not None:
         try:
-            df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            df = load_tally_file(uploaded_file)
             df.columns = [col.strip() for col in df.columns]
             
             cols = {c.lower(): c for c in df.columns}
