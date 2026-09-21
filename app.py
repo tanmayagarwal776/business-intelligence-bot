@@ -15,7 +15,7 @@ def load_tally_file(uploaded_file):
         raw_df = pd.read_excel(uploaded_file, header=None)
     
     header_idx = None
-    target_keywords = ['date', 'particulars', 'party', 'vch no', 'voucher', 'debit', 'credit', 'amount']
+    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due']
     
     for idx, row in raw_df.iterrows():
         row_values = [str(val).strip().lower() for val in row.values if pd.notna(val)]
@@ -32,6 +32,32 @@ def load_tally_file(uploaded_file):
         df = raw_df.copy()
         
     df = df.dropna(how='all')
+    
+    # Agar row 0 par "Amount" ya "by days" likha ho (Tally Sub-header), toh use remove karein
+    if not df.empty:
+        first_row_vals = [str(v).lower() for v in df.iloc[0].values]
+        if any(v in ['amount', 'by days', 'dr', 'cr'] for v in first_row_vals):
+            df = df.iloc[1:]
+            
+    # Columns ke naam standardize karein
+    col_rename = {}
+    for col in df.columns:
+        c_low = str(col).lower()
+        if "party" in c_low or "particular" in c_low:
+            col_rename[col] = "Party Name"
+        elif "pending" in c_low or "amount" in c_low or "debit" in c_low:
+            col_rename[col] = "Amount"
+        elif "overdue" in c_low or "days" in c_low:
+            col_rename[col] = "Days_Overdue"
+            
+    df = df.rename(columns=col_rename)
+    
+    # Amount aur Days ko numbers me convert karein
+    if "Amount" in df.columns:
+        df["Amount"] = pd.to_numeric(df["Amount"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
+    if "Days_Overdue" in df.columns:
+        df["Days_Overdue"] = pd.to_numeric(df["Days_Overdue"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
+        
     df = df.reset_index(drop=True)
     return df
 st.set_page_config(page_title="Business Intelligence Bot", page_icon="💼", layout="wide")
