@@ -7,9 +7,15 @@ import qrcode
 from io import BytesIO
 from urllib.parse import quote
 
-# ----------------- CONFIG & DATABASE SETUP -----------------
-st.set_page_config(page_title="Tally Executive Business Intelligence", layout="wide")
+# ----------------- PAGE CONFIG -----------------
+st.set_page_config(
+    page_title="Tally Executive Business Intelligence",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
+# ----------------- DATABASE INITIALIZATION -----------------
 def init_db():
     conn = sqlite3.connect("users.db", check_same_thread=False)
     c = conn.cursor()
@@ -42,13 +48,13 @@ def verify_user(username, password):
               (username, hash_pw(password)))
     return c.fetchone()
 
-# Default Admin create karein agar exist na ho
+# Default Admin Setup
 c = conn.cursor()
 c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", role="admin", status="approved")
 
-# ----------------- TALLY DATA PARSER -----------------
+# ----------------- TALLY DATA PARSER ENGINE -----------------
 def load_tally_file(uploaded_file):
     try:
         uploaded_file.seek(0)
@@ -83,6 +89,7 @@ def load_tally_file(uploaded_file):
         if any(v in ['amount', 'by days', 'dr', 'cr'] for v in first_row_vals):
             df = df.iloc[1:]
             
+    # Standardize column naming
     col_rename = {}
     for col in df.columns:
         c_low = str(col).lower()
@@ -97,10 +104,18 @@ def load_tally_file(uploaded_file):
             
     df = df.rename(columns=col_rename)
     
+    # Solve PyArrow Duplicate Column Names Crash
+    cols = pd.Series(df.columns)
+    for dup in cols[cols.duplicated()].unique():
+        cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
+    df.columns = cols
+    
+    # Strip Tally To/By Prefixes & filter out system rows
     if "Party Name" in df.columns:
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
         df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'nan', 'none', ''])]
     
+    # Convert numerical values safely
     if "Amount" in df.columns:
         df["Amount"] = pd.to_numeric(df["Amount"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
         
@@ -110,7 +125,7 @@ def load_tally_file(uploaded_file):
     df = df.reset_index(drop=True)
     return df
 
-# ----------------- SESSION STATE & AUTH -----------------
+# ----------------- SESSION STATE -----------------
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
     st.session_state["username"] = ""
@@ -119,7 +134,7 @@ if "logged_in" not in st.session_state:
 
 def generate_upi_qr(vpa, name, amount):
     upi_url = f"upi://pay?pa={vpa}&pn={quote(name)}&am={amount}&cu=INR"
-    qr = qrcode.QRCode(version=1, box_size=6, border=2)
+    qr = qrcode.QRCode(version=1, box_size=5, border=2)
     qr.add_data(upi_url)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
@@ -127,17 +142,17 @@ def generate_upi_qr(vpa, name, amount):
     img.save(buf)
     return buf.getvalue()
 
-# ----------------- LOGIN / SIGNUP / PAYMENT SCREEN -----------------
+# ----------------- AUTHENTICATION VIEW -----------------
 if not st.session_state["logged_in"]:
-    st.title("🔐 Tally Business Intelligence Portal")
+    st.title("🔐 Tally Business Intelligence Suite")
     menu = ["Login", "Register / Subscribe"]
-    choice = st.selectbox("Menu", menu)
+    choice = st.selectbox("Select Action", menu)
 
     if choice == "Login":
-        st.subheader("Account Login")
+        st.subheader("Sign In")
         u = st.text_input("Username")
         p = st.text_input("Password", type="password")
-        if st.button("Login"):
+        if st.button("Log In", use_container_width=True):
             res = verify_user(u, p)
             if res:
                 role, status = res
@@ -153,27 +168,26 @@ if not st.session_state["logged_in"]:
                 st.error("Invalid Username ya Password.")
 
     elif choice == "Register / Subscribe":
-        st.subheader("New Business Subscription")
+        st.subheader("New Executive Subscription")
         new_u = st.text_input("Choose Username")
         new_p = st.text_input("Choose Password", type="password")
-        st.markdown("#### Subscription Plan: ₹999 / Year")
-        st.write("Neeche diye QR code par payment karke UTR/Transaction ID daalein:")
+        st.markdown("#### Annual Access Plan: ₹999 / Year")
+        st.write("Scan the QR code below and submit the transaction UTR number:")
         
-        # QR Code Generation (Replace with your actual UPI ID)
         qr_bytes = generate_upi_qr("your-upi-id@okaxis", "Business Intelligence", "999")
-        st.image(qr_bytes, caption="Scan to Pay ₹999")
+        st.image(qr_bytes, caption="UPI Payment QR - ₹999")
         
-        txn_id = st.text_input("Enter UPI / UTR Transaction Reference ID")
-        if st.button("Submit Payment for Verification"):
+        txn_id = st.text_input("Enter 12-digit UPI / UTR Transaction Number")
+        if st.button("Submit Subscription", use_container_width=True):
             if new_u and new_p and txn_id:
                 add_user(new_u, new_p, role="client", status="pending", txn_id=txn_id)
-                st.success("Registration aur Payment details receive ho gayi hain! Admin approval ke baad aap login kar sakenge.")
+                st.success("Registration aur Payment ID receive ho gayi hai! Admin approval ke baad account activate ho jayega.")
             else:
-                st.error("Kripya sabhi fields fill karein.")
+                st.error("Kripya sabhi fields dhyan se bharein.")
     st.stop()
 
-# ----------------- LOGGED IN INTERFACE -----------------
-st.sidebar.markdown(f"**Logged in as:** `{st.session_state['username']}`")
+# ----------------- MAIN PORTAL (LOGGED IN) -----------------
+st.sidebar.markdown(f"👤 **Logged in as:** `{st.session_state['username']}`")
 if st.sidebar.button("Logout"):
     st.session_state["logged_in"] = False
     st.session_state["username"] = ""
@@ -181,35 +195,36 @@ if st.sidebar.button("Logout"):
     st.session_state["status"] = ""
     st.rerun()
 
-# ----------------- ADMIN PANEL -----------------
+# ----------------- ADMIN PORTAL -----------------
 if st.session_state["role"] == "admin":
     st.sidebar.markdown("---")
-    admin_mode = st.sidebar.radio("Admin Mode", ["Use Bot", "Approve Payments"])
+    admin_mode = st.sidebar.radio("Admin Console", ["Use Bot & Dashboard", "Manage Subscriptions"])
     
-    if admin_mode == "Approve Payments":
-        st.title("💳 Subscription & Payment Approval Panel")
+    if admin_mode == "Manage Subscriptions":
+        st.title("💳 Subscription & Payment Verification Panel")
         c = conn.cursor()
         pending_users = c.execute("SELECT username, txn_id, status FROM users WHERE status='pending'").fetchall()
         
         if pending_users:
+            st.info(f"Total Pending Requests: {len(pending_users)}")
             for u_name, tx_id, stat in pending_users:
                 col_u, col_tx, col_btn = st.columns([2, 3, 2])
                 col_u.write(f"**User:** {u_name}")
-                col_tx.write(f"**Txn ID:** `{tx_id}`")
+                col_tx.write(f"**Txn Ref:** `{tx_id}`")
                 if col_btn.button(f"Approve {u_name}", key=f"appr_{u_name}"):
                     c.execute("UPDATE users SET status='approved' WHERE username=?", (u_name,))
                     conn.commit()
-                    st.success(f"{u_name} ko approve kar diya gaya!")
+                    st.success(f"{u_name} ka subscription activate kar diya gaya!")
                     st.rerun()
         else:
-            st.info("Abhi koi pending subscription payment approval nahi hai.")
+            st.success("Sabhi subscriptions verified hain. Koi pending request nahi hai.")
         st.stop()
 
-# ----------------- EXECUTIVE DASHBOARD & BOT -----------------
+# ----------------- EXECUTIVE DASHBOARD & PARSING -----------------
 st.sidebar.markdown("---")
 st.sidebar.subheader("Upload Business Reports")
 uploaded_files = st.sidebar.file_uploader(
-    "Upload Tally Files (Sales, Receivables, Purchase etc.)",
+    "Upload Tally Files (Sales, Bills Receivable, DayBook, Purchase)",
     type=["xlsx", "xls", "csv"],
     accept_multiple_files=True
 )
@@ -245,7 +260,7 @@ if uploaded_files:
                     business_data["Overdue"] += overdue_rows["Amount"].sum()
                 business_data["Critical_60_Count"] += len(fdf[fdf["Days_Overdue"] >= 60])
 
-        # Sales Check / DayBook
+        # Sales Register / DayBook Check
         elif "sale" in fname or "sale" in text_corpus or "daybook" in fname:
             business_data["Sales_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -255,39 +270,42 @@ if uploaded_files:
                 if not top_c.empty:
                     business_data["Top_Customer"] = top_c.index[0]
 
-        # Purchase Check
+        # Purchase Register Check
         elif "purchase" in fname or "purchase" in text_corpus:
             if "Amount" in fdf.columns:
                 business_data["Purchase"] += fdf["Amount"].sum()
 
+    # Metrics Summary Row
     st.markdown("### 🚀 Executive Dashboard")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Monthly Sales", f"₹{business_data['Sales']:,.2f}")
-    c2.metric("Outstanding", f"₹{business_data['Outstanding']:,.2f}")
-    c3.metric("Overdue", f"₹{business_data['Overdue']:,.2f}")
+    c2.metric("Total Outstanding", f"₹{business_data['Outstanding']:,.2f}")
+    c3.metric("Overdue Dues", f"₹{business_data['Overdue']:,.2f}")
     c4.metric("Top Customer", str(business_data['Top_Customer'])[:18])
 
     st.markdown("---")
 
     col_a, col_b = st.columns(2)
     with col_a:
-        st.info(f"**Total Purchases:** ₹{business_data['Purchase']:,.2f}")
+        gross_diff = business_data["Sales"] - business_data["Purchase"]
+        st.info(f"**Total Purchases:** ₹{business_data['Purchase']:,.2f} | **Cashflow Margin:** ₹{gross_diff:,.2f}")
     with col_b:
-        st.warning(f"**Critical Overdue (60+ Days):** {business_data['Critical_60_Count']} Parties")
+        st.error(f"**Critical Overdue (60+ Days Risk):** {business_data['Critical_60_Count']} Parties Pending")
 
-    st.markdown("### ⚠️ Collection & Overdue Breakdown")
-    tab1, tab2 = st.tabs(["Receivables & Overdue Records", "Sales Register"])
+    st.markdown("### ⚠️ Collection & Ledger Breakdown")
+    tab1, tab2 = st.tabs(["Receivables & Overdue Records", "Sales Register Records"])
     
     with tab1:
         if business_data["Receivables_DF"] is not None:
             st.dataframe(business_data["Receivables_DF"], use_container_width=True)
         else:
-            st.info("Bills Receivable upload karein taaki overdue aur risk breakdown yahan load ho sake.")
+            st.info("Bills Receivable upload karein taaki overdue aur risk analysis render ho sake.")
             
     with tab2:
         if business_data["Sales_DF"] is not None:
             st.dataframe(business_data["Sales_DF"], use_container_width=True)
         else:
-            st.info("Sales Register upload karein taaki transactions yahan load ho sakein.")
+            st.info("Sales Register upload karein taaki transaction analysis render ho sake.")
 else:
+    st.info("ℹ️ Kripya Tally ki reports (Sales Register, Bills Receivable, DayBook) sidebar se upload karein.")
     st.info("ℹ️ Tally ki reports (Sales Register, Receivables ya DayBook) sidebar se upload karein.")
