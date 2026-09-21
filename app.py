@@ -82,6 +82,26 @@ def load_tally_file(uploaded_file):
         file_type = "DayBook"
         
     return file_type, df
+    if df.empty:
+        return "Unknown", df
+    
+    file_type = "Generic"
+    text_corpus = " ".join([str(col).lower() for col in df.columns])
+    
+    vch_types = []
+    if "Vch Type" in df.columns:
+        vch_types = [str(x).lower() for x in df["Vch Type"].dropna().unique()]
+    
+    if any("overdue" in c or "due on" in c or "pending" in c for c in df.columns) or "Days_Overdue" in df.columns:
+        file_type = "Receivables"
+    elif any("sale" in v for v in vch_types) or "sales" in text_corpus or "sale" in uploaded_file.name.lower():
+        file_type = "Sales"
+    elif any("purc" in v for v in vch_types) or "purchase" in text_corpus or "purchase" in uploaded_file.name.lower():
+        file_type = "Purchase"
+    elif "particulars" in text_corpus and ("debit" in text_corpus or "credit" in text_corpus):
+        file_type = "DayBook"
+        
+    return file_type, df
 st.set_page_config(page_title="Business Intelligence Bot", page_icon="💼", layout="wide")
 
 # ==========================================
