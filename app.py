@@ -60,28 +60,81 @@ def load_tally_file(uploaded_file):
         
     df = df.reset_index(drop=True)
     return df
-    def classify_and_parse_tally_file(uploaded_file):
-    df = load_tally_file(uploaded_file)
-    if df.empty:
-        return "Unknown", df
-    
-    file_type = "Generic"
-    text_corpus = " ".join([str(col).lower() for col in df.columns])
-    
-    vch_types = []
-    if "Vch Type" in df.columns:
-        vch_types = [str(x).lower() for x in df["Vch Type"].dropna().unique()]
-    
-    if any("overdue" in c or "due on" in c or "pending" in c for c in df.columns) or "Days_Overdue" in df.columns:
-        file_type = "Receivables"
-    elif any("sale" in v for v in vch_types) or "sales" in text_corpus or "sale" in uploaded_file.name.lower():
-        file_type = "Sales"
-    elif any("purc" in v for v in vch_types) or "purchase" in text_corpus or "purchase" in uploaded_file.name.lower():
-        file_type = "Purchase"
-    elif "particulars" in text_corpus and ("debit" in text_corpus or "credit" in text_corpus):
-        file_type = "DayBook"
-        
-    return file_type, df
+    if uploaded_files:
+    business_data = {
+        "Sales": 0.0,
+        "Purchase": 0.0,
+        "Outstanding": 0.0,
+        "Overdue": 0.0,
+        "Top_Customer": "N/A",
+        "Critical_60_Count": 0,
+        "Receivables_DF": None,
+        "Sales_DF": None
+    }
+
+    for f in uploaded_files:
+        fdf = load_tally_file(f)
+        if fdf.empty:
+            continue
+
+        text_corpus = " ".join([str(col).lower() for col in fdf.columns])
+        fname = f.name.lower()
+
+        # Receivables / Outstanding File Detection
+        if any("overdue" in c or "due on" in c or "pending" in c for c in fdf.columns) or "Days_Overdue" in fdf.columns or "receivable" in fname or "bill" in fname:
+            business_data["Receivables_DF"] = fdf
+            if "Amount" in fdf.columns:
+                business_data["Outstanding"] += fdf["Amount"].sum()
+            if "Days_Overdue" in fdf.columns:
+                overdue_rows = fdf[fdf["Days_Overdue"] > 0]
+                if "Amount" in overdue_rows.columns:
+                    business_data["Overdue"] += overdue_rows["Amount"].sum()
+                business_data["Critical_60_Count"] += len(fdf[fdf["Days_Overdue"] >= 60])
+
+        # Sales File Detection
+        elif "sale" in fname or "sale" in text_corpus or "daybook" in fname:
+            business_data["Sales_DF"] = fdf
+            if "Amount" in fdf.columns:
+                business_data["Sales"] += fdf["Amount"].sum()
+            if "Party Name" in fdf.columns and not fdf.empty:
+                top_c = fdf.groupby("Party Name")["Amount"].sum().sort_values(ascending=False)
+                if not top_c.empty:
+                    business_data["Top_Customer"] = top_c.index[0]
+
+        # Purchase File Detection
+        elif "purchase" in fname or "purchase" in text_corpus:
+            if "Amount" in fdf.columns:
+                business_data["Purchase"] += fdf["Amount"].sum()
+
+    st.markdown("### 🚀 Executive Dashboard")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Monthly Sales", f"₹{business_data['Sales']:,.2f}")
+    c2.metric("Outstanding", f"₹{business_data['Outstanding']:,.2f}")
+    c3.metric("Overdue", f"₹{business_data['Overdue']:,.2f}")
+    c4.metric("Top Customer", str(business_data['Top_Customer'])[:15])
+
+    st.markdown("---")
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.info(f"**Total Purchases:** ₹{business_data['Purchase']:,.2f}")
+    with col_b:
+        st.warning(f"**Critical Overdue (60+ Days):** {business_data['Critical_60_Count']} Parties")
+
+    tab1, tab2 = st.tabs(["Receivables & Overdue", "Sales Data"])
+    with tab1:
+        if business_data["Receivables_DF"] is not None:
+            st.dataframe(business_data["Receivables_DF"], use_container_width=True)
+        else:
+            st.info("Bills Receivable upload hone par overdue analysis yahan aayega.")
+            
+    with tab2:
+        if business_data["Sales_DF"] is not None:
+            st.dataframe(business_data["Sales_DF"], use_container_width=True)
+        else:
+            st.info("Sales Register upload hone par sales records dekhne ke liye.")
+else:
+    st.info("ℹ️ Upload your Tally or Excel report from the sidebar.")
     if df.empty:
         return "Unknown", df
     
