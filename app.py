@@ -60,6 +60,28 @@ def load_tally_file(uploaded_file):
         
     df = df.reset_index(drop=True)
     return df
+    def classify_and_parse_tally_file(uploaded_file):
+    df = load_tally_file(uploaded_file)
+    if df.empty:
+        return "Unknown", df
+    
+    file_type = "Generic"
+    text_corpus = " ".join([str(col).lower() for col in df.columns])
+    
+    vch_types = []
+    if "Vch Type" in df.columns:
+        vch_types = [str(x).lower() for x in df["Vch Type"].dropna().unique()]
+    
+    if any("overdue" in c or "due on" in c or "pending" in c for c in df.columns) or "Days_Overdue" in df.columns:
+        file_type = "Receivables"
+    elif any("sale" in v for v in vch_types) or "sales" in text_corpus or "sale" in uploaded_file.name.lower():
+        file_type = "Sales"
+    elif any("purc" in v for v in vch_types) or "purchase" in text_corpus or "purchase" in uploaded_file.name.lower():
+        file_type = "Purchase"
+    elif "particulars" in text_corpus and ("debit" in text_corpus or "credit" in text_corpus):
+        file_type = "DayBook"
+        
+    return file_type, df
 st.set_page_config(page_title="Business Intelligence Bot", page_icon="💼", layout="wide")
 
 # ==========================================
@@ -254,66 +276,76 @@ else:
     st.title("🤖 Business Intelligence Bot")
     st.caption("Upload Excel/CSV sales & receivables data for instant analytics.")
 
-    uploaded_file = st.sidebar.file_uploader("Upload Excel/CSV Report", type=["xlsx", "xls", "csv"])
+    uploaded_files = st.sidebar.file_uploader(
+    "Upload Tally Files (Sales, Receivables, Purchase etc.)",
+    type=["xlsx", "xls", "csv"],
+    accept_multiple_files=True
+)
 
-    if uploaded_file is not None:
-        try:
-            df = load_tally_file(uploaded_file)
-            df.columns = [col.strip() for col in df.columns]
+    if uploaded_files:
+    business_data = {
+        "Sales": 0.0,
+        "Purchase": 0.0,
+        "Outstanding": 0.0,
+        "Overdue": 0.0,
+        "Top_Customer": "N/A",
+        "Critical_60_Count": 0,
+        "Receivables_DF": None,
+        "Sales_DF": None
+    }
+
+    for f in uploaded_files:
+        ftype, fdf = classify_and_parse_tally_file(f)
+        
+        if ftype == "Sales" or (ftype == "DayBook" and business_data["Sales"] == 0):
+            business_data["Sales_DF"] = fdf
+            if "Amount" in fdf.columns:
+                business_data["Sales"] += fdf["Amount"].sum()
+            if "Party Name" in fdf.columns and not fdf.empty:
+                top_c = fdf.groupby("Party Name")["Amount"].sum().sort_values(ascending=False)
+                if not top_c.empty:
+                    business_data["Top_Customer"] = top_c.index[0]
+                    
+        elif ftype == "Purchase":
+            if "Amount" in fdf.columns:
+                business_data["Purchase"] += fdf["Amount"].sum()
+                
+        elif ftype == "Receivables":
+            business_data["Receivables_DF"] = fdf
+            if "Amount" in fdf.columns:
+                business_data["Outstanding"] += fdf["Amount"].sum()
+            if "Days_Overdue" in fdf.columns:
+                overdue_rows = fdf[fdf["Days_Overdue"] > 0]
+                if "Amount" in overdue_rows.columns:
+                    business_data["Overdue"] += overdue_rows["Amount"].sum()
+                business_data["Critical_60_Count"] += len(fdf[fdf["Days_Overdue"] >= 60])
+
+    st.markdown("### 🚀 Executive Dashboard")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Monthly Sales", f"₹{business_data['Sales']:,.2f}")
+    c2.metric("Outstanding", f"₹{business_data['Outstanding']:,.2f}")
+    c3.metric("Overdue", f"₹{business_data['Overdue']:,.2f}")
+    c4.metric("Top Customer", str(business_data['Top_Customer'])[:15])
+
+    st.markdown("---")
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.info(f"**Total Purchases:** ₹{business_data['Purchase']:,.2f}")
+    with col_b:
+        st.warning(f"**Critical Overdue (60+ Days):** {business_data['Critical_60_Count']} Parties")
+
+    tab1, tab2 = st.tabs(["Receivables & Overdue", "Sales Data"])
+    with tab1:
+        if business_data["Receivables_DF"] is not None:
+            st.dataframe(business_data["Receivables_DF"], use_container_width=True)
+        else:
+            st.info("Bills Receivable upload hone par overdue analysis yahan aayega.")
             
-            cols = {c.lower(): c for c in df.columns}
-            cust_col = cols.get('customer') or cols.get('party name') or cols.get('party') or df.columns[0]
-            sales_col = cols.get('sales_amount') or cols.get('sales') or cols.get('amount') or cols.get('invoice value')
-            out_col = cols.get('outstanding_amount') or cols.get('outstanding') or cols.get('balance') or cols.get('due amount')
-            due_date_col = cols.get('due_date') or cols.get('due on') or cols.get('date')
-
-            if sales_col:
-                df[sales_col] = pd.to_numeric(df[sales_col].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0)
-            if out_col:
-                df[out_col] = pd.to_numeric(df[out_col].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0)
-
-            today = pd.to_datetime(datetime.date.today())
-            if due_date_col:
-                df[due_date_col] = pd.to_datetime(df[due_date_col], errors='coerce')
-                df['Days_Overdue'] = (today - df[due_date_col]).dt.days.apply(lambda x: x if x > 0 else 0)
-            else:
-                df['Days_Overdue'] = 0
-
-            total_sales = df[sales_col].sum() if sales_col else 0
-            total_outstanding = df[out_col].sum() if out_col else 0
-            overdue_df = df[(df['Days_Overdue'] > 0) & (df[out_col] > 0)] if out_col else pd.DataFrame()
-            total_overdue = overdue_df[out_col].sum() if not overdue_df.empty else 0
-            critical_df = df[(df['Days_Overdue'] > 60) & (df[out_col] > 0)] if out_col else pd.DataFrame()
-
-            top_cust = df.groupby(cust_col)[sales_col].sum().sort_values(ascending=False).index[0] if (sales_col and cust_col) else "N/A"
-
-            # KPI Dashboard
-            st.subheader("📌 Executive Dashboard")
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Monthly Sales", f"₹{total_sales:,.2f}")
-            m2.metric("Outstanding", f"₹{total_outstanding:,.2f}")
-            m3.metric("Overdue", f"₹{total_overdue:,.2f}", delta="-Pending" if total_overdue > 0 else None, delta_color="inverse")
-            m4.metric("Top Customer", f"{top_cust}")
-
-            st.markdown("---")
-            st.subheader("⚠️ Collection & Overdue Breakdown")
-            w1, w2 = st.columns(2)
-            with w1:
-                st.info(f"**Collection Due:** {len(overdue_df[cust_col].unique()) if not overdue_df.empty else 0} customers with overdue invoices.")
-            with w2:
-                critical_count = len(critical_df[cust_col].unique()) if not critical_df.empty else 0
-                st.error(f"**Warning:** {critical_count} customers ki payment **60+ days pending** hai.")
-
-            tab1, tab2 = st.tabs(["Critical 60+ Days", "Full Ledger Data"])
-            with tab1:
-                if not critical_df.empty:
-                    st.dataframe(critical_df[[cust_col, out_col, due_date_col, 'Days_Overdue']], use_container_width=True)
-                else:
-                    st.success("No accounts currently pending past 60 days.")
-            with tab2:
-                st.dataframe(df, use_container_width=True)
-
-        except Exception as e:
-            st.error(f"Error parsing data: {e}")
-    else:
-        st.info("👈 Upload your Tally or Excel report from the sidebar.")
+    with tab2:
+        if business_data["Sales_DF"] is not None:
+            st.dataframe(business_data["Sales_DF"], use_container_width=True)
+        else:
+            st.info("Sales Register upload hone par sales records dekhne ke liye.")
+else:
+    st.info("ℹ️ Upload your Tally or Excel report from the sidebar.")
