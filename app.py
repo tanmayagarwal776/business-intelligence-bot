@@ -15,9 +15,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ----------------- DATABASE INITIALIZATION -----------------
+# ----------------- DATABASE INITIALIZATION & MIGRATION -----------------
 def init_db():
-    conn = sqlite3.connect("tally_users.db", check_same_thread=False)
+    conn = sqlite3.connect("tally_users_v3.db", check_same_thread=False)
     c = conn.cursor()
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -26,6 +26,8 @@ def init_db():
             role TEXT,
             status TEXT,
             plan TEXT,
+            created_at TEXT,
+            device_hash TEXT,
             txn_id TEXT
         )
     """)
@@ -37,20 +39,34 @@ conn = init_db()
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-def add_user(username, password, role="client", status="pending", plan="Monthly (₹499)", txn_id=""):
+def get_client_device_hash(username):
+    # Device fingerprinting fallback combination
+    headers = st.context.headers
+    user_agent = headers.get("User-Agent", "standard-browser")
+    accept_lang = headers.get("Accept-Language", "en")
+    raw_fingerprint = f"{user_agent}_{accept_lang}"
+    return hashlib.sha256(raw_fingerprint.encode()).hexdigest()
+
+def check_device_trial_exists(device_hash):
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO users (username, password, role, status, plan, txn_id) VALUES (?, ?, ?, ?, ?, ?)", 
-              (username, hash_pw(password), role, status, plan, txn_id))
+    c.execute("SELECT username FROM users WHERE device_hash=? AND role != 'admin'", (device_hash,))
+    return c.fetchone()
+
+def add_user(username, password, role="client", status="trial", plan="Free Trial (7 Days)", device_hash="", txn_id=""):
+    c = conn.cursor()
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
+              (username, hash_pw(password), role, status, plan, now_str, device_hash, txn_id))
     conn.commit()
 
-def update_user_payment(username, txn_id):
+def update_user_payment(username, plan, txn_id):
     c = conn.cursor()
-    c.execute("UPDATE users SET txn_id=? WHERE username=?", (txn_id, username))
+    c.execute("UPDATE users SET plan=?, txn_id=?, status='pending' WHERE username=?", (plan, txn_id, username))
     conn.commit()
 
 def verify_user(username, password):
     c = conn.cursor()
-    c.execute("SELECT role, status, plan FROM users WHERE username=? AND password=?", 
+    c.execute("SELECT role, status, plan, created_at FROM users WHERE username=? AND password=?", 
               (username, hash_pw(password)))
     return c.fetchone()
 
@@ -58,7 +74,7 @@ def verify_user(username, password):
 c = conn.cursor()
 c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
-    add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime", txn_id="ADMIN")
+    add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
 # ----------------- TALLY DATA PARSER ENGINE -----------------
 def load_tally_file(uploaded_file):
@@ -97,7 +113,6 @@ def load_tally_file(uploaded_file):
         
     df = df.dropna(how='all')
     
-    # Sub-header ya unwanted blank rows filter karein
     if not df.empty:
         first_row_vals = [str(v).lower() for v in df.iloc[0].values]
         if any(v in ['amount', 'by days', 'dr', 'cr'] for v in first_row_vals):
@@ -122,13 +137,13 @@ def load_tally_file(uploaded_file):
             
     df = df.rename(columns=col_rename)
     
-    # Solve Duplicate Column Names Crash (e.g. Amount -> Amount, Amount_1)
+    # Solve PyArrow Duplicate Column Names Crash
     cols = pd.Series(df.columns)
     for dup in cols[cols.duplicated()].unique():
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
     
-    # Summary / Total rows filter karein taaki calculations double na hon
+    # Summary / Total rows filter karein taaki amount double count na ho
     for check_col in ["Party Name", "Date", "Vch Type"]:
         if check_col in df.columns:
             df = df[~df[check_col].astype(str).str.lower().str.contains('total|grand total|closing balance', na=False)]
@@ -137,7 +152,7 @@ def load_tally_file(uploaded_file):
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
         df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', ''])]
     
-    # Saare Amount columns ko float numbers me badlein
+    # Numerical data conversion
     amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
     for ac in amt_cols:
         df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
@@ -162,11 +177,7 @@ if "logged_in" not in st.session_state:
     st.session_state["role"] = ""
     st.session_state["status"] = ""
     st.session_state["plan"] = ""
-
-if "reg_success_user" not in st.session_state:
-    st.session_state["reg_success_user"] = None
-    st.session_state["reg_plan_amt"] = 0
-    st.session_state["reg_plan_name"] = ""
+    st.session_state["created_at"] = ""
 
 def generate_upi_qr(vpa, name, amount):
     upi_url = f"upi://pay?pa={vpa}&pn={quote(name)}&am={amount}&cu=INR"
@@ -178,88 +189,123 @@ def generate_upi_qr(vpa, name, amount):
     img.save(buf)
     return buf.getvalue()
 
-# ----------------- AUTHENTICATION VIEW -----------------
+# ----------------- AUTHENTICATION & TRIAL LOCK -----------------
 if not st.session_state["logged_in"]:
-    st.title("🔐 Tally Business Intelligence Suite")
-    menu = ["Login", "Register / Subscribe"]
-    choice = st.selectbox("Select Action", menu)
+    st.title("🔐 Tally Business Intelligence Portal")
+    menu = ["Login", "Register (7 Days Free Trial)"]
+    choice = st.selectbox("Action", menu)
 
     if choice == "Login":
-        st.subheader("Sign In")
+        st.subheader("Account Login")
         u = st.text_input("Username")
         p = st.text_input("Password", type="password")
         if st.button("Log In", use_container_width=True):
             res = verify_user(u, p)
             if res:
-                role, status, plan = res
-                if status == "pending":
-                    st.warning("⚠️ Aapka payment verification pending hai. Admin approval ke baad dashboard open hoga.")
+                role, status, plan, created_at = res
+                
+                # Check Trial Expiry
+                is_expired = False
+                if status == "trial":
+                    c_date = datetime.datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                    days_passed = (datetime.datetime.now() - c_date).days
+                    if days_passed >= 7:
+                        is_expired = True
+                        status = "expired"
+                        c = conn.cursor()
+                        c.execute("UPDATE users SET status='expired' WHERE username=?", (u,))
+                        conn.commit()
+
+                if is_expired or status == "expired":
+                    st.error("⛔ Aapka 7-Day Free Trial poora ho chuka hai. Kripya niche diye plan se renew karein.")
+                    st.session_state["logged_in"] = True
+                    st.session_state["username"] = u
+                    st.session_state["role"] = role
+                    st.session_state["status"] = "expired"
+                    st.session_state["plan"] = plan
+                    st.rerun()
+                elif status == "pending":
+                    st.warning("⚠️ Aapka payment verification pending hai. Admin approval ke baad dashboard chalu hoga.")
                 else:
                     st.session_state["logged_in"] = True
                     st.session_state["username"] = u
                     st.session_state["role"] = role
                     st.session_state["status"] = status
                     st.session_state["plan"] = plan
+                    st.session_state["created_at"] = created_at
                     st.rerun()
             else:
-                st.error("Invalid Username ya Password.")
+                st.error("Galat Username ya Password.")
 
-    elif choice == "Register / Subscribe":
-        if st.session_state["reg_success_user"] is None:
-            st.subheader("Step 1: Account & Plan Selection")
-            new_u = st.text_input("Choose Username")
-            new_p = st.text_input("Choose Password", type="password")
-            plan_option = st.radio(
-                "Choose Subscription Plan:",
-                ["Monthly Plan — ₹499 / Month", "Yearly Plan — ₹2,999 / Year (Best Value)"]
-            )
-            
-            if st.button("Proceed to Payment & QR", use_container_width=True):
-                if new_u and new_p:
-                    c = conn.cursor()
-                    c.execute("SELECT * FROM users WHERE username=?", (new_u,))
-                    if c.fetchone():
-                        st.error("Yeh Username pehle se maujood hai. Kripya doosra chunein.")
+    elif choice == "Register (7 Days Free Trial)":
+        st.subheader("Start 7 Days Free Trial (No Card Required)")
+        new_u = st.text_input("Choose Username")
+        new_p = st.text_input("Choose Password", type="password")
+        
+        st.info("💡 7 din ke trial ke baad Monthly (₹499) ya Yearly (₹2,999) plan chun sakte hain.")
+
+        if st.button("Activate Free Trial", use_container_width=True):
+            if new_u and new_p:
+                c = conn.cursor()
+                c.execute("SELECT * FROM users WHERE username=?", (new_u,))
+                if c.fetchone():
+                    st.error("Yeh Username pehle se maujood hai. Dusra username chunein.")
+                else:
+                    # Security Check: Device Abuse Prevention
+                    dev_hash = get_client_device_hash(new_u)
+                    prev_acc = check_device_trial_exists(dev_hash)
+                    
+                    if prev_acc:
+                        st.error(f"🚫 Anti-Abuse Alert: Is device/browser par pehle hi account `{prev_acc[0]}` ke liye Free Trial liya ja chuka hai. Nayi ID se dobara trial nahi liya ja sakta. Kripya subscribe karein.")
                     else:
-                        amt = 499 if "499" in plan_option else 2999
-                        p_name = "Monthly (₹499)" if amt == 499 else "Yearly (₹2999)"
-                        add_user(new_u, new_p, role="client", status="pending", plan=p_name, txn_id="")
-                        st.session_state["reg_success_user"] = new_u
-                        st.session_state["reg_plan_amt"] = amt
-                        st.session_state["reg_plan_name"] = p_name
-                        st.rerun()
-                else:
-                    st.error("Kripya Username aur Password dono fill karein.")
-        else:
-            st.success(f"✅ Account create ho gaya: **{st.session_state['reg_success_user']}**")
-            st.subheader(f"Step 2: Pay for {st.session_state['reg_plan_name']}")
-            st.write(f"Payment Amount: **₹{st.session_state['reg_plan_amt']}**")
-            st.write("UPI ID: `tanmayagarwal776@okhdfcbank`")
-            
-            qr_bytes = generate_upi_qr(
-                "tanmayagarwal776@okhdfcbank", 
-                "Tanmay Agarwal", 
-                st.session_state['reg_plan_amt']
-            )
-            st.image(qr_bytes, caption=f"Scan to Pay ₹{st.session_state['reg_plan_amt']}")
-            
-            txn_id = st.text_input("Payment ke baad 12-digit UPI / UTR Transaction Ref ID daalein:")
-            if st.button("Submit Transaction ID", use_container_width=True):
-                if txn_id.strip():
-                    update_user_payment(st.session_state["reg_success_user"], txn_id.strip())
-                    st.success("🎉 Payment details receive ho gayi hain! Admin approve karte hi aap Login kar sakenge.")
-                    st.session_state["reg_success_user"] = None
-                else:
-                    st.error("Kripya valid UTR / Transaction number daalein.")
+                        add_user(new_u, new_p, role="client", status="trial", plan="Free Trial (7 Days)", device_hash=dev_hash, txn_id="FREE_TRIAL")
+                        st.success("🎉 7 Days Free Trial Activate ho gaya hai! Kripya 'Login' par jaakar sign in karein.")
+            else:
+                st.error("Kripya Username aur Password dono fill karein.")
     st.stop()
 
-# ----------------- MAIN PORTAL (LOGGED IN) -----------------
-st.sidebar.markdown(f"👤 **Logged in as:** `{st.session_state['username']}`")
+# ----------------- TRIAL EXPIRED PAYMENT SCREEN -----------------
+if st.session_state.get("status") == "expired":
+    st.error("🚨 AAPKA 7 DAYS TRIAL KHATAM HO GAYA HAI")
+    st.subheader("Dashboard ko dubara unlock karne ke liye subscription chunein:")
+
+    plan_sel = st.radio(
+        "Choose Plan:",
+        ["Monthly Plan — ₹499 / Month", "Yearly Plan — ₹2,999 / Year (Best Value)"]
+    )
+    amt = 499 if "499" in plan_sel else 2999
+    p_name = "Monthly (₹499)" if amt == 499 else "Yearly (₹2999)"
+    
+    st.write(f"Payment Amount: **₹{amt}**")
+    st.write("UPI ID: `tanmayagarwal776@okhdfcbank`")
+    
+    qr_img = generate_upi_qr("tanmayagarwal776@okhdfcbank", "Tanmay Agarwal", amt)
+    st.image(qr_img, caption=f"Scan to Pay ₹{amt}")
+    
+    pay_tx = st.text_input("Payment karne ke baad 12-digit UPI / UTR Transaction ID daalein:")
+    if st.button("Submit Payment for Reactivation", use_container_width=True):
+        if pay_tx.strip():
+            update_user_payment(st.session_state["username"], p_name, pay_tx.strip())
+            st.success("✅ Payment ID submit ho gayi hai! Admin verification ke baad aapka account wapas chalu ho jayega.")
+        else:
+            st.error("Kripya valid UTR / Transaction number dalein.")
+            
+    if st.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
+    st.stop()
+
+# ----------------- LOGGED IN INTERFACE & TRIAL STATUS -----------------
+st.sidebar.markdown(f"👤 **User:** `{st.session_state['username']}`")
+if st.session_state["status"] == "trial":
+    c_date = datetime.datetime.strptime(st.session_state.get("created_at", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")), "%Y-%m-%d %H:%M:%S")
+    days_left = max(0, 7 - (datetime.datetime.now() - c_date).days)
+    st.sidebar.warning(f"⏳ Free Trial: **{days_left} Days Remaining**")
+else:
+    st.sidebar.success(f"⭐ Plan: **{st.session_state.get('plan', 'Active')}**")
+
 if st.sidebar.button("Logout"):
-    st.session_state["logged_in"] = False
-    st.session_state["username"] = ""
-    st.session_state["role"] = ""
-    st.session_state["status"] = ""
+    st.session_state.clear()
     st.rerun()
 
 # ----------------- ADMIN PORTAL -----------------
@@ -282,7 +328,7 @@ if st.session_state["role"] == "admin":
                 if col_btn.button(f"Approve {u_name}", key=f"appr_{u_name}"):
                     c.execute("UPDATE users SET status='approved' WHERE username=?", (u_name,))
                     conn.commit()
-                    st.success(f"{u_name} ka subscription activate kar diya gaya!")
+                    st.success(f"{u_name} ka account approve kar diya gaya!")
                     st.rerun()
         else:
             st.success("Sabhi subscriptions verified hain. Koi pending request nahi hai.")
