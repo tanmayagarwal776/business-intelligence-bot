@@ -16,7 +16,6 @@ st.set_page_config(
 )
 
 # ----------------- DATABASE INITIALIZATION -----------------
-# ----------------- DATABASE INITIALIZATION -----------------
 def init_db():
     conn = sqlite3.connect("tally_users.db", check_same_thread=False)
     c = conn.cursor()
@@ -65,10 +64,17 @@ if not c.fetchone():
 def load_tally_file(uploaded_file):
     try:
         uploaded_file.seek(0)
-        if uploaded_file.name.endswith('.csv'):
+        fname = uploaded_file.name.lower()
+        if fname.endswith('.csv'):
             raw_df = pd.read_csv(uploaded_file, header=None)
+        elif fname.endswith('.xls'):
+            try:
+                raw_df = pd.read_excel(uploaded_file, header=None, engine='xlrd')
+            except Exception:
+                uploaded_file.seek(0)
+                raw_df = pd.read_excel(uploaded_file, header=None)
         else:
-            raw_df = pd.read_excel(uploaded_file, header=None)
+            raw_df = pd.read_excel(uploaded_file, header=None, engine='openpyxl')
     except Exception:
         return pd.DataFrame()
 
@@ -91,6 +97,7 @@ def load_tally_file(uploaded_file):
         
     df = df.dropna(how='all')
     
+    # Header ke turant baad sub-header ya blank rows hatayein
     if not df.empty:
         first_row_vals = [str(v).lower() for v in df.iloc[0].values]
         if any(v in ['amount', 'by days', 'dr', 'cr'] for v in first_row_vals):
@@ -108,19 +115,27 @@ def load_tally_file(uploaded_file):
             col_rename[col] = "Days_Overdue"
         elif "due" in c_low or "date" in c_low:
             col_rename[col] = "Date"
+        elif "vch type" in c_low:
+            col_rename[col] = "Vch Type"
+        elif "vch no" in c_low:
+            col_rename[col] = "Vch No."
             
     df = df.rename(columns=col_rename)
     
-    # Solve Duplicate Column Names Crash
+    # Solve PyArrow Duplicate Column Names Crash
     cols = pd.Series(df.columns)
     for dup in cols[cols.duplicated()].unique():
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
     
-    # Strip Tally To/By Prefixes & filter out system rows
+    # System summary rows hatayein (Jisse Amount double count na ho)
+    for check_col in ["Party Name", "Date", "Vch Type"]:
+        if check_col in df.columns:
+            df = df[~df[check_col].astype(str).str.lower().str.contains('total|grand total|closing balance', na=False)]
+
     if "Party Name" in df.columns:
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
-        df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'nan', 'none', ''])]
+        df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', ''])]
     
     # Convert numerical values safely
     if "Amount" in df.columns:
@@ -295,11 +310,21 @@ if uploaded_files:
             continue
 
         fname = f.name.lower()
-        cols_lower = [str(c).lower() for c in fdf.columns]
-        text_corpus = " ".join(cols_lower)
+        cols_text = " ".join([str(c).lower() for c in fdf.columns])
+        
+        # Check Vch Type column values if present
+        vch_types = []
+        if "Vch Type" in fdf.columns:
+            vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
-        # 1. SALES REGISTER / SALES FILE (Top Priority agar naam me 'sale' ho)
-        if "sale" in fname or ("sales" in text_corpus and "receivable" not in fname):
+        # 1. PURCHASE FILE CHECK
+        if "purch" in fname or any("purch" in v for v in vch_types):
+            business_data["Purchase_DF"] = fdf
+            if "Amount" in fdf.columns:
+                business_data["Purchase"] += fdf["Amount"].sum()
+
+        # 2. SALES FILE CHECK
+        elif "sale" in fname or any("sale" in v for v in vch_types) or "daybook" in fname:
             business_data["Sales_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Sales"] += fdf["Amount"].sum()
@@ -310,55 +335,53 @@ if uploaded_files:
                     if not top_c.empty:
                         business_data["Top_Customer"] = top_c.index[0]
 
-        # 2. PURCHASE REGISTER / PURCHASE FILE
-        elif "purch" in fname or "purchase" in text_corpus:
-            business_data["Purchase_DF"] = fdf
-            if "Amount" in fdf.columns:
-                business_data["Purchase"] += fdf["Amount"].sum()
-
-        # 3. BILLS RECEIVABLE / OUTSTANDING FILE
-        elif "receivable" in fname or "bill" in fname or "outstand" in fname or "overdue" in text_corpus:
+        # 3. RECEIVABLES / OUTSTANDING FILE CHECK
+        elif "receivable" in fname or "bill" in fname or "outstand" in fname or "Days_Overdue" in fdf.columns:
             business_data["Receivables_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Outstanding"] += fdf["Amount"].sum()
-            
-            # Agar Tally ka original Days Overdue column hai:
             if "Days_Overdue" in fdf.columns:
                 overdue_rows = fdf[fdf["Days_Overdue"] > 0]
                 if "Amount" in overdue_rows.columns:
                     business_data["Overdue"] += overdue_rows["Amount"].sum()
                 business_data["Critical_60_Count"] += len(fdf[fdf["Days_Overdue"] >= 60])
 
-    # Metrics Summary Row
-    st.markdown("### 🚀 Executive Dashboard")
+    # Top KPI Metrics Cards
+    st.markdown("### 🚀 Executive Business KPI")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Monthly Sales", f"₹{business_data['Sales']:,.2f}")
     c2.metric("Total Outstanding", f"₹{business_data['Outstanding']:,.2f}")
     c3.metric("Overdue Dues", f"₹{business_data['Overdue']:,.2f}")
-    c4.metric("Top Customer", str(business_data['Top_Customer'])[:18])
+    c4.metric("Top Customer", str(business_data['Top_Customer'])[:20])
 
     st.markdown("---")
 
     col_a, col_b = st.columns(2)
     with col_a:
         gross_diff = business_data["Sales"] - business_data["Purchase"]
-        st.info(f"**Total Purchases:** ₹{business_data['Purchase']:,.2f} | **Cashflow Margin:** ₹{gross_diff:,.2f}")
+        st.info(f"**Total Purchases:** ₹{business_data['Purchase']:,.2f} | **Gross Margin:** ₹{gross_diff:,.2f}")
     with col_b:
-        st.warning(f"**Critical Overdue (60+ Days Risk):** {business_data['Critical_60_Count']} Parties Pending")
+        st.error(f"**Critical Overdue (60+ Days Risk):** {business_data['Critical_60_Count']} Parties Pending")
 
-    st.markdown("### 📋 Ledger & Analysis Breakdown")
-    tab1, tab2 = st.tabs(["Sales Register Records", "Receivables & Overdue Records"])
+    st.markdown("### 📑 Detailed Registers & Breakdown")
+    tab1, tab2, tab3 = st.tabs(["Sales Register", "Purchase Register", "Receivables & Outstandings"])
     
     with tab1:
         if business_data["Sales_DF"] is not None:
             st.dataframe(business_data["Sales_DF"], use_container_width=True)
         else:
-            st.info("Sales Register file upload hone par sales transactions yahan load honge.")
-            
+            st.info("Sales Register file upload hone par yahan display hogi.")
+
     with tab2:
+        if business_data["Purchase_DF"] is not None:
+            st.dataframe(business_data["Purchase_DF"], use_container_width=True)
+        else:
+            st.info("Purchase Register file upload hone par yahan display hogi.")
+            
+    with tab3:
         if business_data["Receivables_DF"] is not None:
             st.dataframe(business_data["Receivables_DF"], use_container_width=True)
         else:
-            st.info("Bills Receivable file upload hone par overdue analysis yahan load hoga.")
+            st.info("Bills Receivable upload hone par overdue analysis yahan aayega.")
 else:
-    st.info("ℹ️ Kripya Tally ki reports (Sales Register, Bills Receivable, DayBook) sidebar se upload karein.")
+    st.info("ℹ️ Kripya Tally ki reports (Sales, Purchase, Receivables) sidebar se upload karein.")
