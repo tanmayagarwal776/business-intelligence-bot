@@ -176,7 +176,7 @@ def load_tally_file(uploaded_file):
         return pd.DataFrame()
 
     header_idx = None
-    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'month', 'july', 'august', 'stock', 'balance', 'closing']
+    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'month', 'july', 'stock', 'balance', 'closing', 'ref']
     
     for idx, row in raw_df.iterrows():
         row_values = [str(val).strip().lower() for val in row.values if pd.notna(val)]
@@ -222,6 +222,7 @@ def load_tally_file(uploaded_file):
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
 
+    # Clean Numeric Columns
     amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
     for ac in amt_cols:
         df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
@@ -235,14 +236,25 @@ def load_tally_file(uploaded_file):
     if "Days_Overdue" in df.columns:
         df["Days_Overdue"] = pd.to_numeric(df["Days_Overdue"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
 
-    # Exclude Summary & Total Rows
+    # 1. Strip explicit Grand Total text lines
     is_summary_row = df.astype(str).apply(lambda row: row.str.lower().str.contains('grand total|total:|closing balance|average', na=False)).any(axis=1)
     df = df[~is_summary_row]
 
+    # 2. Forward-Fill Party Name
     if "Party Name" in df.columns:
         df["Party Name"] = df["Party Name"].replace(['None', 'nan', '', None], pd.NA).ffill()
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
         df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', 'total'])]
+
+    # 3. TRIPLE-COUNTING ELIMINATOR FOR BILLS RECEIVABLE & PAYABLE:
+    # Valid voucher line item ke paas Vch No. ya Date hona anivarya hai
+    if "Vch No." in df.columns and "Date" in df.columns:
+        valid_vch = df["Vch No."].notna() & (~df["Vch No."].astype(str).str.lower().isin(['none', 'nan', '', '0']))
+        valid_date = df["Date"].notna() & (~df["Date"].astype(str).str.lower().isin(['none', 'nan', '', '0']))
+        # Sirf actual invoices ko rakhein (Sub-total blank rows drop)
+        df = df[valid_vch | valid_date]
+    elif "Date" in df.columns:
+        df = df[df["Date"].notna() & (~df["Date"].astype(str).str.lower().isin(['none', 'nan', '']))]
 
     df = df.reset_index(drop=True)
     return df
@@ -321,7 +333,7 @@ if not st.session_state["logged_in"]:
 
             st.markdown("""
                 <div class="support-box">
-                    <span style="color: #94A3B8; font-size: 0.85rem;">📞 Need assistance? Customer Care:</span><br>
+                    <span style="color: #94A3B8; font-size: 0.85rem;">📞 Customer Care Helpline:</span><br>
                     <a href="tel:7016882039" style="color: #818CF8; font-weight: 700; text-decoration: none; font-size: 1rem;">+91 7016882039</a>
                 </div>
             """, unsafe_allow_html=True)
@@ -387,7 +399,7 @@ if st.session_state.get("status") == "expired":
 
         st.markdown("""
             <div class="support-box">
-                <span style="color: #94A3B8; font-size: 0.85rem;">💬 Payment or Verification Query?</span><br>
+                <span style="color: #94A3B8; font-size: 0.85rem;">💬 Payment Query?</span><br>
                 <b>Customer Care:</b> <a href="https://wa.me/917016882039" style="color: #34D399; font-weight: 700; text-decoration: none;">+91 7016882039</a>
             </div>
         """, unsafe_allow_html=True)
@@ -433,7 +445,7 @@ with st.sidebar:
         max_value=180, 
         value=65, 
         step=5,
-        help="Salt, Manufacturing ya FMCG ke mutabiq allowed credit days set karein."
+        help="Allowed credit days set karein."
     )
 
     st.markdown("---")
@@ -442,11 +454,10 @@ with st.sidebar:
         "Upload Tally Exports (.xlsx, .xls, .csv)",
         type=["xlsx", "xls", "csv"],
         accept_multiple_files=True,
-        help="Drop Sales, Purchase, Receivables, Payables, Stock Summary, Trial Balance ya P&L files."
+        help="Drop Sales, Purchase, Bills, Receivables, Payables, Stock ya P&L files."
     )
 
     st.markdown("---")
-    # Customer Care Widget
     st.markdown("""
         <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px; text-align: center;">
             <div style="font-size: 0.75rem; color: #94A3B8; font-weight: 600; text-transform: uppercase;">Helpdesk & Support</div>
@@ -515,19 +526,18 @@ if uploaded_files:
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
-        # 1. STOCK SUMMARY (CLOSING INVENTORY)
+        # 1. STOCK SUMMARY
         if "stock" in fname or "inventory" in fname:
             business_data["Stock_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Closing_Stock"] += fdf["Amount"].sum()
 
-        # 2. BILLS PAYABLE (VENDOR OUTSTANDINGS / MSME SECTION 43B(H))
-        elif "payable" in fname or "vendor_outstand" in fname:
+        # 2. BILLS PAYABLE (CREDITORS)
+        elif "payable" in fname or "creditor" in fname:
             business_data["Payables_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Payables"] += fdf["Amount"].sum()
             if "Days_Overdue" in fdf.columns:
-                # MSME Section 43B(h) Mandate: 45 Days Exceeded Check
                 msme_overdue = fdf[fdf["Days_Overdue"] >= 45]
                 if "Amount" in msme_overdue.columns:
                     business_data["MSME_Critical_Dues"] += msme_overdue["Amount"].sum()
@@ -536,10 +546,7 @@ if uploaded_files:
         elif "purch" in fname or any("purch" in v for v in vch_types):
             business_data["Purchase_DF"] = fdf
             if "Amount" in fdf.columns:
-                val = fdf["Amount"].sum()
-                if val == 0 and "Amount_1" in fdf.columns:
-                    val = fdf["Amount_1"].sum()
-                business_data["Purchase"] += val
+                business_data["Purchase"] += fdf["Amount"].sum()
 
         # 4. SALES REGISTER / DAYBOOK
         elif "sale" in fname or any("sale" in v for v in vch_types) or "daybook" in fname:
@@ -577,23 +584,22 @@ if uploaded_files:
                     else:
                         business_data["Indirect_Expenses"] += amt
 
-    # Calculations
+    # Core Calculations
     cogs = (business_data["Purchase"] + business_data["Direct_Expenses"]) - business_data["Closing_Stock"]
     gross_profit = business_data["Sales"] - (cogs if cogs > 0 else business_data["Purchase"])
     net_profit = gross_profit - business_data["Indirect_Expenses"]
-    net_liquidity = business_data["Outstanding"] - business_data["Payables"]
 
     # Header
     st.markdown("""
         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
             <div>
                 <h2 style="font-weight: 800; margin-bottom: 4px; letter-spacing: -0.02em;">Executive Performance & CA Audit Dashboard</h2>
-                <p style="color: #94A3B8; font-size: 0.95rem; margin: 0;">March-Ending Reconciliation, P&L, Working Capital & Exposure Analysis</p>
+                <p style="color: #94A3B8; font-size: 0.95rem; margin: 0;">Reconciliation, Working Capital, Overdues & Tax Compliance</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    # 4 Executive KPI Cards
+    # 4 Core KPI Cards (Overdue Portfolio restored)
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(f"""
@@ -606,27 +612,48 @@ if uploaded_files:
     with k2:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">Receivables (Sundry Debtors)</div>
+                <div class="metric-label">Total Outstandings</div>
                 <div class="metric-val">₹{business_data['Outstanding']:,.2f}</div>
-                <div class="metric-sub" style="color: #38BDF8;">● Market Dues</div>
+                <div class="metric-sub" style="color: #38BDF8;">● Customer Debtors</div>
             </div>
         """, unsafe_allow_html=True)
     with k3:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">Payables (Sundry Creditors)</div>
-                <div class="metric-val">₹{business_data['Payables']:,.2f}</div>
-                <div class="metric-sub" style="color: #FB7185;">● Supplier Liabilities</div>
+                <div class="metric-label">Overdue Portfolio</div>
+                <div class="metric-val" style="color: #F87171;">₹{business_data['Overdue']:,.2f}</div>
+                <div class="metric-sub" style="color: #F87171;">● Due Date Crossed</div>
             </div>
         """, unsafe_allow_html=True)
     with k4:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">Net Working Liquidity</div>
-                <div class="metric-val" style="color: {'#34D399' if net_liquidity >= 0 else '#F87171'};">
-                    ₹{net_liquidity:,.2f}
+                <div class="metric-label">Total Payables</div>
+                <div class="metric-val">₹{business_data['Payables']:,.2f}</div>
+                <div class="metric-sub" style="color: #FB7185;">● Vendor Outstandings</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    # Key Accounts & Critical Risk Row
+    c_sub1, c_sub2 = st.columns(2)
+    with c_sub1:
+        st.markdown(f"""
+            <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">KEY REVENUE DRIVER</div>
+                    <div style="font-size: 1.25rem; font-weight: 700;">{str(business_data['Top_Customer'])[:20]}</div>
                 </div>
-                <div class="metric-sub" style="color: #94A3B8;">● (Debtors - Creditors)</div>
+                <div class="badge-tag badge-primary" style="margin: 0;">TOP BUYER ACCOUNT</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with c_sub2:
+        st.markdown(f"""
+            <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">CRITICAL OVERDUE RISK</div>
+                    <div style="font-size: 1.25rem; font-weight: 700; color: #F87171;">{business_data['Critical_Count']} Accounts Exceeded</div>
+                </div>
+                <div class="badge-tag badge-danger" style="margin: 0;">THRESHOLD: {credit_days_threshold}+ DAYS</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -636,58 +663,42 @@ if uploaded_files:
     pl_c1.metric("Turnover", f"₹{business_data['Sales']:,.2f}")
     pl_c2.metric("Procurement (COGS)", f"₹{business_data['Purchase']:,.2f}")
     pl_c3.metric("Operating Gross Profit", f"₹{gross_profit:,.2f}", delta=f"{(gross_profit / business_data['Sales'] * 100):.1f}% Margin" if business_data['Sales'] > 0 else "0%")
-    pl_c4.metric("Estimated Net Taxable Profit", f"₹{net_profit:,.2f}", delta="Taxable Surplus" if net_profit >= 0 else "Tax Loss Carry-Forward")
+    pl_c4.metric("Estimated Net Taxable Profit", f"₹{net_profit:,.2f}", delta="Taxable Surplus" if net_profit >= 0 else "Tax Loss")
 
     st.markdown("---")
 
-    # March-Ending CA Audit Dossier Banner
+    # March-Ending CA Audit Dossier
     st.markdown("### 🏛️ March-Ending CA Audit & Tax Dossier")
     ca_col1, ca_col2 = st.columns([2.2, 1.8])
     with ca_col1:
         st.markdown(f"""
             <div class="info-card">
-                <div style="font-weight: 700; font-size: 1.1rem; color: #F8FAFC; margin-bottom: 8px;">Compliance & Filing Health Check</div>
+                <div style="font-weight: 700; font-size: 1.05rem; color: #F8FAFC; margin-bottom: 8px;">Compliance & Audit Check</div>
                 <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
                     <span style="color: #94A3B8;">Closing Stock Valuation:</span>
                     <b>₹{business_data['Closing_Stock']:,.2f}</b>
                 </div>
                 <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                    <span style="color: #94A3B8;">MSME 45-Day Rule Liability (Sec 43B(h)):</span>
+                    <span style="color: #94A3B8;">MSME 45-Day Dues (Sec 43B(h)):</span>
                     <b style="color: {'#F87171' if business_data['MSME_Critical_Dues'] > 0 else '#34D399'};">₹{business_data['MSME_Critical_Dues']:,.2f}</b>
                 </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                    <span style="color: #94A3B8;">Overdue Customer Receivables:</span>
-                    <b>₹{business_data['Overdue']:,.2f}</b>
-                </div>
                 <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94A3B8;">Critical Risk Accounts (>{credit_days_threshold} Days):</span>
+                    <span style="color: #94A3B8;">Critical Debtors Overdue (>{credit_days_threshold} Days):</span>
                     <b>{business_data['Critical_Count']} Accounts</b>
                 </div>
             </div>
         """, unsafe_allow_html=True)
     with ca_col2:
-        st.markdown("""
-            <div class="info-card">
-                <div style="font-weight: 700; font-size: 1.05rem; color: #F8FAFC; margin-bottom: 6px;">Direct Export for Chartered Accountant</div>
-                <p style="color: #94A3B8; font-size: 0.85rem; margin-bottom: 12px;">
-                    Apne CA ko bhejne ke liye consolidated Audit Sheet download karein. Isme Turnover, COGS, Net Profit, Debtors/Creditors Summary aur MSME compliance ek sath taiyar hai.
-                </p>
-            </div>
-        """, unsafe_allow_html=True)
-
-        # Generate CA Audit Dossier Excel
         audit_summary_df = pd.DataFrame([
             {"Audit Metric": "Annual Sales Turnover", "Amount (INR)": business_data["Sales"]},
             {"Audit Metric": "Annual Total Purchases", "Amount (INR)": business_data["Purchase"]},
             {"Audit Metric": "Closing Stock Valuation", "Amount (INR)": business_data["Closing_Stock"]},
-            {"Audit Metric": "Gross Profit", "Amount (INR)": gross_profit},
-            {"Audit Metric": "Direct Expenses (Freight/Carriage)", "Amount (INR)": business_data["Direct_Expenses"]},
-            {"Audit Metric": "Indirect Overheads", "Amount (INR)": business_data["Indirect_Expenses"]},
+            {"Audit Metric": "Operating Gross Profit", "Amount (INR)": gross_profit},
             {"Audit Metric": "Estimated Net Taxable Profit", "Amount (INR)": net_profit},
             {"Audit Metric": "Total Sundry Debtors (Receivables)", "Amount (INR)": business_data["Outstanding"]},
+            {"Audit Metric": "Total Overdue Portfolio", "Amount (INR)": business_data["Overdue"]},
             {"Audit Metric": "Total Sundry Creditors (Payables)", "Amount (INR)": business_data["Payables"]},
-            {"Audit Metric": "MSME Overdue Payables (>45 Days - Sec 43Bh)", "Amount (INR)": business_data["MSME_Critical_Dues"]},
-            {"Audit Metric": "Top Buyer Account", "Amount (INR)": business_data["Top_Customer"]}
+            {"Audit Metric": "MSME Overdue Payables (>45 Days - Sec 43Bh)", "Amount (INR)": business_data["MSME_Critical_Dues"]}
         ])
         
         output = BytesIO()
@@ -722,44 +733,44 @@ if uploaded_files:
         if business_data["Sales_DF"] is not None:
             st.dataframe(business_data["Sales_DF"], use_container_width=True, height=400)
         else:
-            st.info("Sales Register upload hone par customer transactions display honge.")
+            st.info("Sales Register upload hone par customer transactions load honge.")
 
     with tab2:
         if business_data["Purchase_DF"] is not None:
             st.dataframe(business_data["Purchase_DF"], use_container_width=True, height=400)
         else:
-            st.info("Purchase Register upload hone par vendor billing display hogi.")
+            st.info("Purchase Register upload hone par vendor billing load hogi.")
             
     with tab3:
         if business_data["Receivables_DF"] is not None:
             st.dataframe(business_data["Receivables_DF"], use_container_width=True, height=400)
         else:
-            st.info("Bills Receivable upload hone par aged customer dues load honge.")
+            st.info("Bills Receivable upload hone par customer dues load honge.")
 
     with tab4:
         if business_data["Payables_DF"] is not None:
             st.dataframe(business_data["Payables_DF"], use_container_width=True, height=400)
         else:
-            st.info("Bills Payable upload hone par supplier dues & MSME 45-day status load honge.")
+            st.info("Bills Payable upload hone par supplier dues load honge.")
 
     with tab5:
         if business_data["Stock_DF"] is not None:
             st.dataframe(business_data["Stock_DF"], use_container_width=True, height=400)
         else:
-            st.info("Stock Summary file upload karein closing inventory valuation calculate karne ke liye.")
+            st.info("Stock Summary file upload hone par inventory records load honge.")
 
     with tab6:
         if business_data["PL_DF"] is not None:
             st.dataframe(business_data["PL_DF"], use_container_width=True, height=400)
         else:
-            st.info("Profit & Loss / Expense statement upload hone par itemized overheads load honge.")
+            st.info("Profit & Loss statement upload hone par itemized overheads load honge.")
 else:
     st.markdown("""
         <div style="text-align: center; padding: 60px 20px; border: 1px dashed rgba(255,255,255,0.15); border-radius: 18px; margin-top: 20px;">
             <div style="font-size: 2.8rem; margin-bottom: 10px;">📊</div>
             <h3 style="font-weight: 700;">No Financial Reports Loaded</h3>
             <p style="color: #94A3B8; max-width: 500px; margin: auto;">
-                Sidebar uploader me Tally reports (Sales, Purchase, Receivables, Payables, Stock Summary ya P&L) drop karein taaki CA-ready audit sheets generate ho sakein.
+                Sidebar uploader me Tally reports (Sales, Purchase, Bills, Payables, Stock Summary ya P&L) drop karein.
             </p>
         </div>
     """, unsafe_allow_html=True)
