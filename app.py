@@ -24,12 +24,10 @@ st.markdown("""
         font-family: 'Inter', sans-serif;
     }
     
-    /* Global Background Accent */
     .stApp {
         background: radial-gradient(circle at 10% 20%, rgba(14, 23, 42, 0.95) 0%, rgba(15, 23, 42, 1) 90%);
     }
 
-    /* Metric Glass Cards */
     .metric-card {
         background: rgba(30, 41, 59, 0.7);
         backdrop-filter: blur(12px);
@@ -63,22 +61,19 @@ st.markdown("""
         font-weight: 500;
     }
 
-    /* Subcard Styles */
     .info-card {
         background: rgba(30, 41, 59, 0.5);
         border: 1px solid rgba(255, 255, 255, 0.06);
         border-radius: 14px;
-        padding: 16px 20px;
+        padding: 18px 22px;
         margin-bottom: 15px;
     }
 
-    /* Sidebar Customization */
     section[data-testid="stSidebar"] {
         background-color: #0B1120;
         border-right: 1px solid rgba(255, 255, 255, 0.06);
     }
 
-    /* Custom Badges */
     .badge-tag {
         display: inline-block;
         padding: 4px 10px;
@@ -93,7 +88,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ----------------- DATABASE SETUP -----------------
+# ----------------- DATABASE INITIALIZATION -----------------
 def init_db():
     conn = sqlite3.connect("tally_users_v3.db", check_same_thread=False)
     c = conn.cursor()
@@ -219,7 +214,7 @@ def load_tally_file(uploaded_file):
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
     
-    # Strip Summary Lines
+    # Exclude Total / Summary rows to prevent double counting
     for check_col in ["Party Name", "Date", "Vch Type"]:
         if check_col in df.columns:
             df = df[~df[check_col].astype(str).str.lower().str.contains('total|grand total|closing balance', na=False)]
@@ -228,12 +223,12 @@ def load_tally_file(uploaded_file):
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
         df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', ''])]
     
-    # Clean Numerical Values
+    # Clean Numeric Columns
     amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
     for ac in amt_cols:
         df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
 
-    # Shift value if Amount column empty and Amount_1 populated
+    # Re-map Amount_1 if primary Amount column is zero
     if "Amount_1" in df.columns:
         if "Amount" not in df.columns or df["Amount"].sum() == 0:
             df["Amount"] = df["Amount_1"]
@@ -270,7 +265,7 @@ if not st.session_state["logged_in"]:
     st.markdown("""
         <div style="text-align: center; margin-top: 40px; margin-bottom: 30px;">
             <div class="badge-tag badge-primary">ENTERPRISE INTELLIGENCE</div>
-            <h1 style="font-weight: 800; font-size: 2.6rem; letter-spacing: -0.02em; margin-bottom: 8px;">Tally BI Portal</h1>
+            <h1 style="font-weight: 800; font-size: 2.6rem; letter-spacing: -0.02em; margin-bottom: 8px;">Tally BI Suite</h1>
             <p style="color: #94A3B8; font-size: 1.05rem;">Turn raw accounting exports into executive revenue & risk insights</p>
         </div>
     """, unsafe_allow_html=True)
@@ -338,7 +333,7 @@ if not st.session_state["logged_in"]:
                             st.error(f"🚫 Abuse Prevention: A trial is already active for this workstation (`{prev_acc[0]}`). Please purchase a subscription.")
                         else:
                             add_user(new_u, new_p, role="client", status="trial", plan="Free Trial (7 Days)", device_hash=dev_hash, txn_id="FREE_TRIAL")
-                            st.success("🎉 Trial activated successfully! Switch to 'Sign In' to begin.")
+                            st.success("🎉 Trial activated successfully! Switch to 'Sign In' tab to log in.")
                 else:
                     st.error("Please fill in both fields.")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -412,6 +407,18 @@ with st.sidebar:
     else:
         admin_mode = "Analytics Dashboard"
 
+    # Business Rules: Dynamic Credit Days
+    st.markdown("#### ⚙️ Business Rules")
+    credit_days_threshold = st.slider(
+        "Standard Credit Period (Days)", 
+        min_value=15, 
+        max_value=180, 
+        value=65, 
+        step=5,
+        help="Salt, Manufacturing ya FMCG ke mutabiq allowed credit days set karein."
+    )
+
+    st.markdown("---")
     st.markdown("#### 📂 Tally Data Import")
     uploaded_files = st.file_uploader(
         "Drop Tally Reports (.xlsx, .xls, .csv)",
@@ -453,7 +460,7 @@ if uploaded_files:
         "Outstanding": 0.0,
         "Overdue": 0.0,
         "Top_Customer": "N/A",
-        "Critical_60_Count": 0,
+        "Critical_Count": 0,
         "Receivables_DF": None,
         "Sales_DF": None,
         "Purchase_DF": None
@@ -499,7 +506,8 @@ if uploaded_files:
                 overdue_rows = fdf[fdf["Days_Overdue"] > 0]
                 if "Amount" in overdue_rows.columns:
                     business_data["Overdue"] += overdue_rows["Amount"].sum()
-                business_data["Critical_60_Count"] += len(fdf[fdf["Days_Overdue"] >= 60])
+                # Dynamic Credit Days calculation
+                business_data["Critical_Count"] += len(fdf[fdf["Days_Overdue"] >= credit_days_threshold])
 
     # Top Executive Header
     st.markdown("""
@@ -548,7 +556,7 @@ if uploaded_files:
             </div>
         """, unsafe_allow_html=True)
 
-    # Sub-KPI Cards Row
+    # Sub-KPI Margin & Critical Risk Row
     gross_diff = business_data["Sales"] - business_data["Purchase"]
     c_sub1, c_sub2 = st.columns(2)
     with c_sub1:
@@ -569,13 +577,13 @@ if uploaded_files:
             <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
                     <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">CRITICAL RISK LEDGER</div>
-                    <div style="font-size: 1.3rem; font-weight: 700; color: #F87171;">{business_data['Critical_60_Count']} Overdue Accounts</div>
+                    <div style="font-size: 1.3rem; font-weight: 700; color: #F87171;">{business_data['Critical_Count']} Overdue Accounts</div>
                 </div>
-                <div class="badge-tag badge-danger" style="margin: 0;">ACTION: 60+ DAYS DUES</div>
+                <div class="badge-tag badge-danger" style="margin: 0;">THRESHOLD: {credit_days_threshold}+ DAYS</div>
             </div>
         """, unsafe_allow_html=True)
 
-    # Data Tabs
+    # Registers Tabs
     st.markdown("### 📑 Detailed Ledgers & Registers")
     tab1, tab2, tab3 = st.tabs(["📊 Sales Register", "📦 Purchase Register", "⚠️ Receivables & Risk"])
     
