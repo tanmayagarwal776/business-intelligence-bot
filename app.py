@@ -97,7 +97,7 @@ def load_tally_file(uploaded_file):
         
     df = df.dropna(how='all')
     
-    # Header ke turant baad sub-header ya blank rows hatayein
+    # Sub-header ya unwanted blank rows filter karein
     if not df.empty:
         first_row_vals = [str(v).lower() for v in df.iloc[0].values]
         if any(v in ['amount', 'by days', 'dr', 'cr'] for v in first_row_vals):
@@ -122,13 +122,13 @@ def load_tally_file(uploaded_file):
             
     df = df.rename(columns=col_rename)
     
-    # Solve PyArrow Duplicate Column Names Crash
+    # Solve Duplicate Column Names Crash (e.g. Amount -> Amount, Amount_1)
     cols = pd.Series(df.columns)
     for dup in cols[cols.duplicated()].unique():
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
     
-    # System summary rows hatayein (Jisse Amount double count na ho)
+    # Summary / Total rows filter karein taaki calculations double na hon
     for check_col in ["Party Name", "Date", "Vch Type"]:
         if check_col in df.columns:
             df = df[~df[check_col].astype(str).str.lower().str.contains('total|grand total|closing balance', na=False)]
@@ -137,10 +137,18 @@ def load_tally_file(uploaded_file):
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
         df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', ''])]
     
-    # Convert numerical values safely
-    if "Amount" in df.columns:
-        df["Amount"] = pd.to_numeric(df["Amount"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
-        
+    # Saare Amount columns ko float numbers me badlein
+    amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
+    for ac in amt_cols:
+        df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
+
+    # Agar Amount 0 ho aur Amount_1 me data ho toh swap/merge karein
+    if "Amount_1" in df.columns:
+        if "Amount" not in df.columns or df["Amount"].sum() == 0:
+            df["Amount"] = df["Amount_1"]
+        elif df["Amount_1"].sum() > 0 and df["Amount"].sum() > 0:
+            df["Amount"] = df[["Amount", "Amount_1"]].max(axis=1)
+
     if "Days_Overdue" in df.columns:
         df["Days_Overdue"] = pd.to_numeric(df["Days_Overdue"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
         
@@ -197,7 +205,6 @@ if not st.session_state["logged_in"]:
                 st.error("Invalid Username ya Password.")
 
     elif choice == "Register / Subscribe":
-        # Check agar user ne abhi register click kiya hai
         if st.session_state["reg_success_user"] is None:
             st.subheader("Step 1: Account & Plan Selection")
             new_u = st.text_input("Choose Username")
@@ -224,7 +231,6 @@ if not st.session_state["logged_in"]:
                 else:
                     st.error("Kripya Username aur Password dono fill karein.")
         else:
-            # Registration ke baad QR aur Payment submit ka screen
             st.success(f"✅ Account create ho gaya: **{st.session_state['reg_success_user']}**")
             st.subheader(f"Step 2: Pay for {st.session_state['reg_plan_name']}")
             st.write(f"Payment Amount: **₹{st.session_state['reg_plan_amt']}**")
@@ -310,9 +316,6 @@ if uploaded_files:
             continue
 
         fname = f.name.lower()
-        cols_text = " ".join([str(c).lower() for c in fdf.columns])
-        
-        # Check Vch Type column values if present
         vch_types = []
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
@@ -321,7 +324,10 @@ if uploaded_files:
         if "purch" in fname or any("purch" in v for v in vch_types):
             business_data["Purchase_DF"] = fdf
             if "Amount" in fdf.columns:
-                business_data["Purchase"] += fdf["Amount"].sum()
+                val = fdf["Amount"].sum()
+                if val == 0 and "Amount_1" in fdf.columns:
+                    val = fdf["Amount_1"].sum()
+                business_data["Purchase"] += val
 
         # 2. SALES FILE CHECK
         elif "sale" in fname or any("sale" in v for v in vch_types) or "daybook" in fname:
@@ -346,7 +352,7 @@ if uploaded_files:
                     business_data["Overdue"] += overdue_rows["Amount"].sum()
                 business_data["Critical_60_Count"] += len(fdf[fdf["Days_Overdue"] >= 60])
 
-    # Top KPI Metrics Cards
+    # KPI Summary Cards
     st.markdown("### 🚀 Executive Business KPI")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Monthly Sales", f"₹{business_data['Sales']:,.2f}")
