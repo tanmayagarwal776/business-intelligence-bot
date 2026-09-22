@@ -173,7 +173,7 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- ACCURATE INVENTORY & P&L XML EXTRACTION -----------------
+# ----------------- TRUE TALLY INVENTORY VALUATION ENGINE -----------------
 def extract_all_from_xml(uploaded_file):
     uploaded_file.seek(0)
     raw_content = uploaded_file.read()
@@ -189,7 +189,8 @@ def extract_all_from_xml(uploaded_file):
 
     vch_blocks = re.findall(r'<VOUCHER\b[^>]*>(.*?)</VOUCHER>', content_str, re.DOTALL | re.IGNORECASE)
     vouchers = []
-    item_balances = {}  # {item_name: {"net_qty": 0.0, "net_val": 0.0, "unit": "bag", "rate": 0.0}}
+    # item_balances: {item: {"purch_qty": 0, "purch_val": 0, "sales_qty": 0, "unit": "bag", "fallback_rate": 0}}
+    item_stats = {}
     expense_records = []
     current_date = datetime.date.today()
 
@@ -238,7 +239,7 @@ def extract_all_from_xml(uploaded_file):
                 "Days_Overdue": days_old
             })
 
-        # Net Closing Stock Engine (Inwards: +, Outwards: -)
+        # Inventory Items Extract
         is_purchase = any(x in v_type.lower() for x in ["purchase", "receipt note"])
         is_sale = any(x in v_type.lower() for x in ["sale", "delivery note"])
 
@@ -252,12 +253,13 @@ def extract_all_from_xml(uploaded_file):
             if item_name_m:
                 it_name = item_name_m.group(1).strip()
                 it_name = re.sub(r'&amp;', '&', it_name)
+                it_name = re.sub(r'&#[0-9xX]+;', '', it_name)
                 it_amt = abs(float(amt_m.group(1))) if amt_m else 0.0
                 
                 # Parse numeric quantity
                 raw_qty_str = qty_m.group(1).strip() if qty_m else "0"
                 qty_val_m = re.search(r'([+-]?\d+(?:\.\d+)?)', raw_qty_str)
-                num_qty = float(qty_val_m.group(1)) if qty_val_m else 0.0
+                num_qty = abs(float(qty_val_m.group(1))) if qty_val_m else 0.0
                 unit_str = re.sub(r'[0-9\.\+\-\s]', '', raw_qty_str) or "bag"
 
                 # Parse rate
@@ -265,20 +267,25 @@ def extract_all_from_xml(uploaded_file):
                 rate_val_m = re.search(r'([+-]?\d+(?:\.\d+)?)', raw_rate_str)
                 num_rate = float(rate_val_m.group(1)) if rate_val_m else (it_amt / num_qty if num_qty != 0 else 0.0)
 
-                if it_name not in item_balances:
-                    item_balances[it_name] = {"net_qty": 0.0, "net_val": 0.0, "unit": unit_str, "last_rate": num_rate}
+                if it_name not in item_stats:
+                    item_stats[it_name] = {
+                        "purch_qty": 0.0,
+                        "purch_val": 0.0,
+                        "sales_qty": 0.0,
+                        "unit": unit_str,
+                        "fallback_rate": num_rate
+                    }
 
                 if is_purchase:
-                    item_balances[it_name]["net_qty"] += num_qty
-                    item_balances[it_name]["net_val"] += it_amt
+                    item_stats[it_name]["purch_qty"] += num_qty
+                    item_stats[it_name]["purch_val"] += it_amt
                     if num_rate > 0:
-                        item_balances[it_name]["last_rate"] = num_rate
+                        item_stats[it_name]["fallback_rate"] = num_rate
                 elif is_sale:
-                    item_balances[it_name]["net_qty"] -= num_qty
-                    item_balances[it_name]["net_val"] -= it_amt
+                    item_stats[it_name]["sales_qty"] += num_qty
                 else:
-                    item_balances[it_name]["net_qty"] += num_qty
-                    item_balances[it_name]["net_val"] += it_amt
+                    item_stats[it_name]["purch_qty"] += num_qty
+                    item_stats[it_name]["purch_val"] += it_amt
 
         # Overheads for P&L
         led_blocks = re.findall(r'<ALLLEDGERENTRIES\.LIST\b[^>]*>(.*?)</ALLLEDGERENTRIES\.LIST>', block, re.DOTALL | re.IGNORECASE)
@@ -298,15 +305,28 @@ def extract_all_from_xml(uploaded_file):
                         "Amount": lamt
                     })
 
-    # Convert inventory dictionary to clean item-wise summary (Matching Tally Stock Summary)
+    # Exact Tally Cost-Valuation Formula for Closing Stock
     stock_summary_rows = []
-    for it_k, it_v in item_balances.items():
-        stock_summary_rows.append({
-            "Particulars (Stock Item)": it_k,
-            "Closing Quantity": f"{it_v['net_qty']:,.0f} {it_v['unit']}",
-            "Effective Rate": f"₹{it_v['last_rate']:,.2f}",
-            "Closing Value": round(it_v['net_val'], 2)
-        })
+    for it_k, it_v in item_stats.items():
+        net_qty = it_v["purch_qty"] - it_v["sales_qty"]
+        
+        # Tally Purchase Cost Rate (Valuation Basis)
+        if it_v["purch_qty"] > 0 and it_v["purch_val"] > 0:
+            valuation_rate = it_v["purch_val"] / it_v["purch_qty"]
+        else:
+            valuation_rate = it_v["fallback_rate"]
+
+        # Closing Value = Net Qty * Purchase Rate (Exact AS-2 Valuation)
+        closing_val = round(net_qty * valuation_rate, 2)
+
+        # Sirf active items dikhayein jinme quantity ya value bachi ho
+        if abs(net_qty) > 0.001 or abs(closing_val) > 0.001:
+            stock_summary_rows.append({
+                "Particulars (Stock Item)": it_k,
+                "Closing Quantity": f"{net_qty:,.0f} {it_v['unit']}",
+                "Valuation Rate": f"₹{valuation_rate:,.2f}",
+                "Closing Value": closing_val
+            })
 
     vch_df = pd.DataFrame(vouchers) if vouchers else pd.DataFrame()
     stk_df = pd.DataFrame(stock_summary_rows) if stock_summary_rows else pd.DataFrame()
@@ -786,21 +806,12 @@ if uploaded_files:
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
 
-    # Auto-consolidate Stock & P&L from XML extraction if separate Excel not uploaded
+    # Auto-consolidate Stock & P&L from XML
     if business_data["Stock_DF"] is None and xml_stock_accumulator:
         consolidated_stk = pd.concat(xml_stock_accumulator, ignore_index=True)
-        # Group by Stock Item name to give clean closing balance
-        if "Particulars (Stock Item)" in consolidated_stk.columns:
-            stk_grouped = consolidated_stk.groupby("Particulars (Stock Item)").agg({
-                "Closing Quantity": "last",
-                "Effective Rate": "last",
-                "Closing Value": "sum"
-            }).reset_index()
-            business_data["Stock_DF"] = stk_grouped
-            business_data["Closing_Stock"] = stk_grouped["Closing Value"].sum()
-        else:
-            business_data["Stock_DF"] = consolidated_stk
-            business_data["Closing_Stock"] = consolidated_stk["Closing Value"].sum() if "Closing Value" in consolidated_stk.columns else 0.0
+        business_data["Stock_DF"] = consolidated_stk
+        if "Closing Value" in consolidated_stk.columns:
+            business_data["Closing_Stock"] = round(consolidated_stk["Closing Value"].sum(), 2)
 
     if business_data["PL_DF"] is None and xml_expense_accumulator:
         consolidated_exp = pd.concat(xml_expense_accumulator, ignore_index=True)
@@ -905,7 +916,7 @@ if uploaded_files:
                 <div style="font-weight: 700; font-size: 1.05rem; color: #F8FAFC; margin-bottom: 8px;">Compliance & Audit Check</div>
                 <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
                     <span style="color: #94A3B8;">Closing Stock Valuation:</span>
-                    <b style="color: {'#F87171' if business_data['Closing_Stock'] < 0 else '#F8FAFC'};">₹{business_data['Closing_Stock']:,.2f}</b>
+                    <b style="color: {'#F87171' if business_data['Closing_Stock'] < 0 else '#4ADE80'};">₹{business_data['Closing_Stock']:,.2f}</b>
                 </div>
                 <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
                     <span style="color: #94A3B8;">MSME 45-Day Dues (Sec 43B(h)):</span>
