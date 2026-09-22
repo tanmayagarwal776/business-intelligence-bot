@@ -16,11 +16,12 @@ st.set_page_config(
 )
 
 # ----------------- DATABASE INITIALIZATION -----------------
+# ----------------- DATABASE INITIALIZATION -----------------
 def init_db():
-    conn = sqlite3.connect("users.db", check_same_thread=False)
+    conn = sqlite3.connect("tally_users.db", check_same_thread=False)
     c = conn.cursor()
     c.execute("""
-        CREATE TABLE IF NOT EXISTS users_v2 (
+        CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             password TEXT,
             role TEXT,
@@ -39,24 +40,24 @@ def hash_pw(password):
 
 def add_user(username, password, role="client", status="pending", plan="Monthly (₹499)", txn_id=""):
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO users_v2 VALUES (?, ?, ?, ?, ?, ?)", 
+    c.execute("INSERT OR REPLACE INTO users (username, password, role, status, plan, txn_id) VALUES (?, ?, ?, ?, ?, ?)", 
               (username, hash_pw(password), role, status, plan, txn_id))
     conn.commit()
 
 def update_user_payment(username, txn_id):
     c = conn.cursor()
-    c.execute("UPDATE users_v2 SET txn_id=? WHERE username=?", (txn_id, username))
+    c.execute("UPDATE users SET txn_id=? WHERE username=?", (txn_id, username))
     conn.commit()
 
 def verify_user(username, password):
     c = conn.cursor()
-    c.execute("SELECT role, status, plan FROM users_v2 WHERE username=? AND password=?", 
+    c.execute("SELECT role, status, plan FROM users WHERE username=? AND password=?", 
               (username, hash_pw(password)))
     return c.fetchone()
 
 # Default Admin Setup
 c = conn.cursor()
-c.execute("SELECT * FROM users_v2 WHERE username='tanmay_admin'")
+c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime", txn_id="ADMIN")
 
