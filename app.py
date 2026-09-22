@@ -203,7 +203,7 @@ def load_tally_file(uploaded_file):
             col_rename[col] = "Date"
         elif "vch type" in c_low:
             col_rename[col] = "Vch Type"
-        elif "vch no" in c_low:
+        elif "vch no" in c_low or "ref" in c_low:
             col_rename[col] = "Vch No."
             
     df = df.rename(columns=col_rename)
@@ -214,21 +214,11 @@ def load_tally_file(uploaded_file):
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
     
-    # Exclude Total / Summary rows to prevent double counting
-    for check_col in ["Party Name", "Date", "Vch Type"]:
-        if check_col in df.columns:
-            df = df[~df[check_col].astype(str).str.lower().str.contains('total|grand total|closing balance', na=False)]
-
-    if "Party Name" in df.columns:
-        df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
-        df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', ''])]
-    
-    # Clean Numeric Columns
+    # Clean Numerical Values First
     amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
     for ac in amt_cols:
         df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
 
-    # Re-map Amount_1 if primary Amount column is zero
     if "Amount_1" in df.columns:
         if "Amount" not in df.columns or df["Amount"].sum() == 0:
             df["Amount"] = df["Amount_1"]
@@ -237,7 +227,25 @@ def load_tally_file(uploaded_file):
 
     if "Days_Overdue" in df.columns:
         df["Days_Overdue"] = pd.to_numeric(df["Days_Overdue"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
-        
+
+    # Filter out System Summary/Total Rows to avoid double counting
+    for check_col in ["Party Name", "Date", "Vch Type", "Vch No."]:
+        if check_col in df.columns:
+            df = df[~df[check_col].astype(str).str.lower().str.contains('total|grand total|closing balance', na=False)]
+
+    # Tally Hierarchical Structure: Map Parent Party to nested voucher rows
+    if "Party Name" in df.columns:
+        df["Party Name"] = df["Party Name"].replace(['None', 'nan', '', None], pd.NA)
+        df["Party Name"] = df["Party Name"].ffill()
+        df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
+        df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', ''])]
+
+    # Exclude isolated summary rows where no voucher/date exists but amount is present
+    if "Vch No." in df.columns and "Date" in df.columns:
+        df = df[~(df["Vch No."].isna() & df["Date"].isna())]
+    elif "Date" in df.columns:
+        df = df[df["Date"].notna() & (~df["Date"].astype(str).str.lower().isin(['none', 'nan', '']))]
+
     df = df.reset_index(drop=True)
     return df
 
@@ -503,11 +511,13 @@ if uploaded_files:
             if "Amount" in fdf.columns:
                 business_data["Outstanding"] += fdf["Amount"].sum()
             if "Days_Overdue" in fdf.columns:
+                # Sirf un invoices ko Overdue ginein jinka due days > 0 ho
                 overdue_rows = fdf[fdf["Days_Overdue"] > 0]
                 if "Amount" in overdue_rows.columns:
                     business_data["Overdue"] += overdue_rows["Amount"].sum()
-                # Dynamic Credit Days calculation
-                business_data["Critical_Count"] += len(fdf[fdf["Days_Overdue"] >= credit_days_threshold])
+                # Dynamic Credit threshold risk
+                critical_df = fdf[fdf["Days_Overdue"] >= credit_days_threshold]
+                business_data["Critical_Count"] += len(critical_df)
 
     # Top Executive Header
     st.markdown("""
@@ -583,7 +593,7 @@ if uploaded_files:
             </div>
         """, unsafe_allow_html=True)
 
-    # Registers Tabs
+    # Detailed Ledgers Tabs
     st.markdown("### 📑 Detailed Ledgers & Registers")
     tab1, tab2, tab3 = st.tabs(["📊 Sales Register", "📦 Purchase Register", "⚠️ Receivables & Risk"])
     
