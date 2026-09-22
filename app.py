@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
-    page_title="Tally Executive BI Suite",
+    page_title="Tally Executive Financial Intelligence",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -32,7 +32,7 @@ st.markdown("""
         background: rgba(30, 41, 59, 0.7);
         backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 22px 20px;
+        padding: 20px;
         border-radius: 16px;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
         transition: transform 0.2s ease, border-color 0.2s ease;
@@ -43,7 +43,7 @@ st.markdown("""
         border-color: rgba(99, 102, 241, 0.4);
     }
     .metric-label {
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         font-weight: 500;
         color: #94A3B8;
         text-transform: uppercase;
@@ -51,12 +51,12 @@ st.markdown("""
         margin-bottom: 6px;
     }
     .metric-val {
-        font-size: 1.75rem;
+        font-size: 1.65rem;
         font-weight: 700;
         color: #F8FAFC;
     }
     .metric-sub {
-        font-size: 0.8rem;
+        font-size: 0.78rem;
         margin-top: 6px;
         font-weight: 500;
     }
@@ -142,13 +142,13 @@ def verify_user(username, password):
               (username, hash_pw(password)))
     return c.fetchone()
 
-# Default Admin Setup
+# Admin Account Default
 c = conn.cursor()
 c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- TALLY DATA PARSER ENGINE -----------------
+# ----------------- TALLY MULTI-REPORT PARSER -----------------
 def load_tally_file(uploaded_file):
     try:
         uploaded_file.seek(0)
@@ -167,7 +167,7 @@ def load_tally_file(uploaded_file):
         return pd.DataFrame()
 
     header_idx = None
-    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit']
+    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'expense', 'income']
     
     for idx, row in raw_df.iterrows():
         row_values = [str(val).strip().lower() for val in row.values if pd.notna(val)]
@@ -208,13 +208,13 @@ def load_tally_file(uploaded_file):
             
     df = df.rename(columns=col_rename)
     
-    # Handle Duplicate Columns
+    # Handle Duplicate Column Headers
     cols = pd.Series(df.columns)
     for dup in cols[cols.duplicated()].unique():
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
     
-    # Clean Numerical Values First
+    # Numeric conversions
     amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
     for ac in amt_cols:
         df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
@@ -228,19 +228,16 @@ def load_tally_file(uploaded_file):
     if "Days_Overdue" in df.columns:
         df["Days_Overdue"] = pd.to_numeric(df["Days_Overdue"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
 
-    # Filter out System Summary/Total Rows to avoid double counting
+    # Summary Row Strip
     for check_col in ["Party Name", "Date", "Vch Type", "Vch No."]:
         if check_col in df.columns:
             df = df[~df[check_col].astype(str).str.lower().str.contains('total|grand total|closing balance', na=False)]
 
-    # Tally Hierarchical Structure: Map Parent Party to nested voucher rows
     if "Party Name" in df.columns:
-        df["Party Name"] = df["Party Name"].replace(['None', 'nan', '', None], pd.NA)
-        df["Party Name"] = df["Party Name"].ffill()
+        df["Party Name"] = df["Party Name"].replace(['None', 'nan', '', None], pd.NA).ffill()
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
         df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', ''])]
 
-    # Exclude isolated summary rows where no voucher/date exists but amount is present
     if "Vch No." in df.columns and "Date" in df.columns:
         df = df[~(df["Vch No."].isna() & df["Date"].isna())]
     elif "Date" in df.columns:
@@ -273,8 +270,8 @@ if not st.session_state["logged_in"]:
     st.markdown("""
         <div style="text-align: center; margin-top: 40px; margin-bottom: 30px;">
             <div class="badge-tag badge-primary">ENTERPRISE INTELLIGENCE</div>
-            <h1 style="font-weight: 800; font-size: 2.6rem; letter-spacing: -0.02em; margin-bottom: 8px;">Tally BI Suite</h1>
-            <p style="color: #94A3B8; font-size: 1.05rem;">Turn raw accounting exports into executive revenue & risk insights</p>
+            <h1 style="font-weight: 800; font-size: 2.6rem; letter-spacing: -0.02em; margin-bottom: 8px;">Tally Executive Suite</h1>
+            <p style="color: #94A3B8; font-size: 1.05rem;">Turn raw accounting registers into executive P&L, working capital & risk insights</p>
         </div>
     """, unsafe_allow_html=True)
 
@@ -309,7 +306,7 @@ if not st.session_state["logged_in"]:
                         st.session_state["plan"] = plan
                         st.rerun()
                     elif status == "pending":
-                        st.warning("⚠️ Payment verification under review. Dashboard will unlock upon Admin approval.")
+                        st.warning("⚠️ Payment verification under review. Admin will approve shortly.")
                     else:
                         st.session_state["logged_in"] = True
                         st.session_state["username"] = u
@@ -319,12 +316,12 @@ if not st.session_state["logged_in"]:
                         st.session_state["created_at"] = created_at
                         st.rerun()
                 else:
-                    st.error("Invalid credentials provided.")
+                    st.error("Invalid username or password.")
             st.markdown("</div>", unsafe_allow_html=True)
 
         elif choice == "Start 7-Day Free Trial":
             st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-            new_u = st.text_input("Choose Username", placeholder="e.g. enterprise_audit")
+            new_u = st.text_input("Choose Username", placeholder="e.g. accounts_head")
             new_p = st.text_input("Choose Password", type="password", placeholder="••••••••")
             
             st.caption("🔒 7-day full access included. No credit card required.")
@@ -341,7 +338,7 @@ if not st.session_state["logged_in"]:
                             st.error(f"🚫 Abuse Prevention: A trial is already active for this workstation (`{prev_acc[0]}`). Please purchase a subscription.")
                         else:
                             add_user(new_u, new_p, role="client", status="trial", plan="Free Trial (7 Days)", device_hash=dev_hash, txn_id="FREE_TRIAL")
-                            st.success("🎉 Trial activated successfully! Switch to 'Sign In' tab to log in.")
+                            st.success("🎉 Trial activated successfully! Switch to 'Sign In' to begin.")
                 else:
                     st.error("Please fill in both fields.")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -415,7 +412,7 @@ with st.sidebar:
     else:
         admin_mode = "Analytics Dashboard"
 
-    # Business Rules: Dynamic Credit Days
+    # Business Rules
     st.markdown("#### ⚙️ Business Rules")
     credit_days_threshold = st.slider(
         "Standard Credit Period (Days)", 
@@ -427,12 +424,12 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.markdown("#### 📂 Tally Data Import")
+    st.markdown("#### 📂 Tally Reports Import")
     uploaded_files = st.file_uploader(
-        "Drop Tally Reports (.xlsx, .xls, .csv)",
+        "Upload Tally Exports (.xlsx, .xls, .csv)",
         type=["xlsx", "xls", "csv"],
         accept_multiple_files=True,
-        help="Upload Sales Register, Purchase Register, DayBook, or Bills Receivable."
+        help="Drop Sales, Purchase, Receivables, Payables, or P&L statement files."
     )
 
 # ----------------- ADMIN APPROVAL INTERFACE -----------------
@@ -466,12 +463,17 @@ if uploaded_files:
         "Sales": 0.0,
         "Purchase": 0.0,
         "Outstanding": 0.0,
+        "Payables": 0.0,
         "Overdue": 0.0,
+        "Direct_Expenses": 0.0,
+        "Indirect_Expenses": 0.0,
         "Top_Customer": "N/A",
         "Critical_Count": 0,
         "Receivables_DF": None,
+        "Payables_DF": None,
         "Sales_DF": None,
-        "Purchase_DF": None
+        "Purchase_DF": None,
+        "PL_DF": None
     }
 
     for f in uploaded_files:
@@ -480,12 +482,19 @@ if uploaded_files:
             continue
 
         fname = f.name.lower()
+        cols_text = " ".join([str(c).lower() for c in fdf.columns])
         vch_types = []
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
-        # 1. PURCHASE PARSER
-        if "purch" in fname or any("purch" in v for v in vch_types):
+        # 1. BILLS PAYABLE (VENDOR OUTSTANDINGS)
+        if "payable" in fname or "vendor_outstand" in fname:
+            business_data["Payables_DF"] = fdf
+            if "Amount" in fdf.columns:
+                business_data["Payables"] += fdf["Amount"].sum()
+
+        # 2. PURCHASE REGISTER
+        elif "purch" in fname or any("purch" in v for v in vch_types):
             business_data["Purchase_DF"] = fdf
             if "Amount" in fdf.columns:
                 val = fdf["Amount"].sum()
@@ -493,7 +502,7 @@ if uploaded_files:
                     val = fdf["Amount_1"].sum()
                 business_data["Purchase"] += val
 
-        # 2. SALES PARSER
+        # 3. SALES REGISTER / DAYBOOK
         elif "sale" in fname or any("sale" in v for v in vch_types) or "daybook" in fname:
             business_data["Sales_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -505,31 +514,47 @@ if uploaded_files:
                     if not top_c.empty:
                         business_data["Top_Customer"] = top_c.index[0]
 
-        # 3. RECEIVABLES / OUTSTANDING PARSER
+        # 4. BILLS RECEIVABLE (CUSTOMER OUTSTANDINGS)
         elif "receivable" in fname or "bill" in fname or "outstand" in fname or "Days_Overdue" in fdf.columns:
             business_data["Receivables_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Outstanding"] += fdf["Amount"].sum()
             if "Days_Overdue" in fdf.columns:
-                # Sirf un invoices ko Overdue ginein jinka due days > 0 ho
                 overdue_rows = fdf[fdf["Days_Overdue"] > 0]
                 if "Amount" in overdue_rows.columns:
                     business_data["Overdue"] += overdue_rows["Amount"].sum()
-                # Dynamic Credit threshold risk
                 critical_df = fdf[fdf["Days_Overdue"] >= credit_days_threshold]
                 business_data["Critical_Count"] += len(critical_df)
 
-    # Top Executive Header
+        # 5. PROFIT & LOSS / EXPENSE STATEMENTS
+        elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
+            business_data["PL_DF"] = fdf
+            if "Amount" in fdf.columns and "Party Name" in fdf.columns:
+                # Classify direct vs indirect expenses
+                for _, r in fdf.iterrows():
+                    p_name = str(r["Party Name"]).lower()
+                    amt = float(r["Amount"])
+                    if any(x in p_name for x in ["freight", "wages", "carriage", "factory", "fuel"]):
+                        business_data["Direct_Expenses"] += amt
+                    else:
+                        business_data["Indirect_Expenses"] += amt
+
+    # Core Calculations
+    gross_profit = business_data["Sales"] - (business_data["Purchase"] + business_data["Direct_Expenses"])
+    net_profit = gross_profit - business_data["Indirect_Expenses"]
+    net_liquidity = business_data["Outstanding"] - business_data["Payables"]
+
+    # Header
     st.markdown("""
         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
             <div>
-                <h2 style="font-weight: 800; margin-bottom: 4px; letter-spacing: -0.02em;">Executive Performance Dashboard</h2>
-                <p style="color: #94A3B8; font-size: 0.95rem; margin: 0;">Consolidated Financial & Risk Overview</p>
+                <h2 style="font-weight: 800; margin-bottom: 4px; letter-spacing: -0.02em;">Executive Financial Performance</h2>
+                <p style="color: #94A3B8; font-size: 0.95rem; margin: 0;">Comprehensive P&L, Working Capital & Exposure Analysis</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    # Glassmorphism Top KPI Cards
+    # 4 Executive KPI Cards
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(f"""
@@ -542,85 +567,109 @@ if uploaded_files:
     with k2:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">Total Outstandings</div>
+                <div class="metric-label">Receivables (Aana Hai)</div>
                 <div class="metric-val">₹{business_data['Outstanding']:,.2f}</div>
-                <div class="metric-sub" style="color: #FBBF24;">● Receivables Ledger</div>
+                <div class="metric-sub" style="color: #38BDF8;">● Market Dues</div>
             </div>
         """, unsafe_allow_html=True)
     with k3:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">Overdue Portfolio</div>
-                <div class="metric-val">₹{business_data['Overdue']:,.2f}</div>
-                <div class="metric-sub" style="color: #F87171;">● Due Date Exceeded</div>
+                <div class="metric-label">Payables (Dena Hai)</div>
+                <div class="metric-val">₹{business_data['Payables']:,.2f}</div>
+                <div class="metric-sub" style="color: #FB7185;">● Vendor Outstandings</div>
             </div>
         """, unsafe_allow_html=True)
     with k4:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">Key Revenue Driver</div>
-                <div class="metric-val" style="font-size: 1.35rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
-                    {str(business_data['Top_Customer'])[:17]}
+                <div class="metric-label">Net Working Liquidity</div>
+                <div class="metric-val" style="color: {'#34D399' if net_liquidity >= 0 else '#F87171'};">
+                    ₹{net_liquidity:,.2f}
                 </div>
-                <div class="metric-sub" style="color: #818CF8;">● Top Volume Account</div>
+                <div class="metric-sub" style="color: #94A3B8;">● (Receivables - Payables)</div>
             </div>
         """, unsafe_allow_html=True)
 
-    # Sub-KPI Margin & Critical Risk Row
-    gross_diff = business_data["Sales"] - business_data["Purchase"]
+    # Profit & Loss Statement Summary Card
+    st.markdown("### 📈 Profit & Loss Summary (Tally Mode)")
+    pl_c1, pl_c2, pl_c3, pl_c4 = st.columns(4)
+    pl_c1.metric("Gross Turnover", f"₹{business_data['Sales']:,.2f}")
+    pl_c2.metric("Total Procurement (COGS)", f"₹{business_data['Purchase']:,.2f}")
+    pl_c3.metric("Operating Gross Profit", f"₹{gross_profit:,.2f}", delta=f"{(gross_profit / business_data['Sales'] * 100):.1f}% Margin" if business_data['Sales'] > 0 else "0%")
+    pl_c4.metric("Estimated Net Profit", f"₹{net_profit:,.2f}", delta="Net Return" if net_profit >= 0 else "Operating Deficit")
+
+    st.markdown("---")
+
+    # Risk & Procurement Row
     c_sub1, c_sub2 = st.columns(2)
     with c_sub1:
         st.markdown(f"""
             <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">TOTAL PROCUREMENT</div>
-                    <div style="font-size: 1.3rem; font-weight: 700;">₹{business_data['Purchase']:,.2f}</div>
+                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">KEY REVENUE DRIVER</div>
+                    <div style="font-size: 1.25rem; font-weight: 700;">{str(business_data['Top_Customer'])[:20]}</div>
                 </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">ESTIMATED SPREAD / MARGIN</div>
-                    <div style="font-size: 1.3rem; font-weight: 700; color: {'#34D399' if gross_diff >= 0 else '#F87171'};">₹{gross_diff:,.2f}</div>
-                </div>
+                <div class="badge-tag badge-primary" style="margin: 0;">TOP BUYER ACCOUNT</div>
             </div>
         """, unsafe_allow_html=True)
     with c_sub2:
         st.markdown(f"""
             <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">CRITICAL RISK LEDGER</div>
-                    <div style="font-size: 1.3rem; font-weight: 700; color: #F87171;">{business_data['Critical_Count']} Overdue Accounts</div>
+                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">CRITICAL OVERDUE RISK</div>
+                    <div style="font-size: 1.25rem; font-weight: 700; color: #F87171;">{business_data['Critical_Count']} Accounts Exceeded</div>
                 </div>
                 <div class="badge-tag badge-danger" style="margin: 0;">THRESHOLD: {credit_days_threshold}+ DAYS</div>
             </div>
         """, unsafe_allow_html=True)
 
-    # Detailed Ledgers Tabs
-    st.markdown("### 📑 Detailed Ledgers & Registers")
-    tab1, tab2, tab3 = st.tabs(["📊 Sales Register", "📦 Purchase Register", "⚠️ Receivables & Risk"])
+    # Detailed Ledgers & Analysis Tabs
+    st.markdown("### 📑 Detailed Accounting Registers")
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📊 Sales Register", 
+        "📦 Purchase Register", 
+        "⚠️ Receivables (Customers)", 
+        "🏢 Payables (Vendors)",
+        "📋 P&L Statements"
+    ])
     
     with tab1:
         if business_data["Sales_DF"] is not None:
             st.dataframe(business_data["Sales_DF"], use_container_width=True, height=400)
         else:
-            st.info("Upload Sales Register to populate individual customer transactions.")
+            st.info("Sales Register upload hone par customer transactions yahan display honge.")
 
     with tab2:
         if business_data["Purchase_DF"] is not None:
             st.dataframe(business_data["Purchase_DF"], use_container_width=True, height=400)
         else:
-            st.info("Upload Purchase Register to inspect vendor expense ledgers.")
+            st.info("Purchase Register upload hone par vendor billing details yahan display hogi.")
             
     with tab3:
         if business_data["Receivables_DF"] is not None:
             st.dataframe(business_data["Receivables_DF"], use_container_width=True, height=400)
         else:
-            st.info("Upload Bills Receivable to populate aged debt and risk distributions.")
+            st.info("Bills Receivable upload hone par aged customer dues yahan aayenge.")
+
+    with tab4:
+        if business_data["Payables_DF"] is not None:
+            st.dataframe(business_data["Payables_DF"], use_container_width=True, height=400)
+        else:
+            st.info("Bills Payable upload hone par supplier dues yahan display honge.")
+
+    with tab5:
+        if business_data["PL_DF"] is not None:
+            st.dataframe(business_data["PL_DF"], use_container_width=True, height=400)
+        else:
+            st.info("Profit & Loss / Expense report upload hone par itemized overheads yahan load honge.")
 else:
     st.markdown("""
         <div style="text-align: center; padding: 60px 20px; border: 1px dashed rgba(255,255,255,0.15); border-radius: 18px; margin-top: 20px;">
             <div style="font-size: 2.8rem; margin-bottom: 10px;">📊</div>
             <h3 style="font-weight: 700;">No Financial Reports Loaded</h3>
             <p style="color: #94A3B8; max-width: 500px; margin: auto;">
-                Drop your Tally export files (Sales Register, Purchase Register, Bills Receivable, or DayBook) into the sidebar uploader to generate analytics.
+                Sidebar uploader me apne Tally export reports (Sales Register, Purchase Register, Receivables, Payables, ya Profit & Loss statement) drop karein.
             </p>
         </div>
     """, unsafe_allow_html=True)
