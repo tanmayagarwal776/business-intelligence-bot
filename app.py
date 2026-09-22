@@ -9,13 +9,91 @@ from urllib.parse import quote
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
-    page_title="Tally Executive Business Intelligence",
-    page_icon="📊",
+    page_title="Tally Executive BI Suite",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ----------------- DATABASE INITIALIZATION & MIGRATION -----------------
+# ----------------- MODERN EXECUTIVE CSS THEME -----------------
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Global Background Accent */
+    .stApp {
+        background: radial-gradient(circle at 10% 20%, rgba(14, 23, 42, 0.95) 0%, rgba(15, 23, 42, 1) 90%);
+    }
+
+    /* Metric Glass Cards */
+    .metric-card {
+        background: rgba(30, 41, 59, 0.7);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 22px 20px;
+        border-radius: 16px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+        transition: transform 0.2s ease, border-color 0.2s ease;
+        margin-bottom: 12px;
+    }
+    .metric-card:hover {
+        transform: translateY(-2px);
+        border-color: rgba(99, 102, 241, 0.4);
+    }
+    .metric-label {
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: #94A3B8;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 6px;
+    }
+    .metric-val {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: #F8FAFC;
+    }
+    .metric-sub {
+        font-size: 0.8rem;
+        margin-top: 6px;
+        font-weight: 500;
+    }
+
+    /* Subcard Styles */
+    .info-card {
+        background: rgba(30, 41, 59, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 14px;
+        padding: 16px 20px;
+        margin-bottom: 15px;
+    }
+
+    /* Sidebar Customization */
+    section[data-testid="stSidebar"] {
+        background-color: #0B1120;
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    /* Custom Badges */
+    .badge-tag {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+    .badge-primary { background: rgba(99, 102, 241, 0.2); color: #818CF8; border: 1px solid rgba(99, 102, 241, 0.3); }
+    .badge-danger { background: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.25); }
+    .badge-success { background: rgba(34, 197, 94, 0.15); color: #4ADE80; border: 1px solid rgba(34, 197, 94, 0.25); }
+    </style>
+""", unsafe_allow_html=True)
+
+# ----------------- DATABASE SETUP -----------------
 def init_db():
     conn = sqlite3.connect("tally_users_v3.db", check_same_thread=False)
     c = conn.cursor()
@@ -40,7 +118,6 @@ def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def get_client_device_hash(username):
-    # Device fingerprinting fallback combination
     headers = st.context.headers
     user_agent = headers.get("User-Agent", "standard-browser")
     accept_lang = headers.get("Accept-Language", "en")
@@ -74,7 +151,7 @@ def verify_user(username, password):
 c = conn.cursor()
 c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
-    add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime", device_hash="ADMIN_DEV", txn_id="ADMIN")
+    add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
 # ----------------- TALLY DATA PARSER ENGINE -----------------
 def load_tally_file(uploaded_file):
@@ -118,7 +195,6 @@ def load_tally_file(uploaded_file):
         if any(v in ['amount', 'by days', 'dr', 'cr'] for v in first_row_vals):
             df = df.iloc[1:]
             
-    # Standardize column naming
     col_rename = {}
     for col in df.columns:
         c_low = str(col).lower()
@@ -137,13 +213,13 @@ def load_tally_file(uploaded_file):
             
     df = df.rename(columns=col_rename)
     
-    # Solve PyArrow Duplicate Column Names Crash
+    # Handle Duplicate Columns
     cols = pd.Series(df.columns)
     for dup in cols[cols.duplicated()].unique():
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
     
-    # Summary / Total rows filter karein taaki amount double count na ho
+    # Strip Summary Lines
     for check_col in ["Party Name", "Date", "Vch Type"]:
         if check_col in df.columns:
             df = df[~df[check_col].astype(str).str.lower().str.contains('total|grand total|closing balance', na=False)]
@@ -152,12 +228,12 @@ def load_tally_file(uploaded_file):
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
         df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', ''])]
     
-    # Numerical data conversion
+    # Clean Numerical Values
     amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
     for ac in amt_cols:
         df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
 
-    # Agar Amount 0 ho aur Amount_1 me data ho toh swap/merge karein
+    # Shift value if Amount column empty and Amount_1 populated
     if "Amount_1" in df.columns:
         if "Amount" not in df.columns or df["Amount"].sum() == 0:
             df["Amount"] = df["Amount_1"]
@@ -189,160 +265,187 @@ def generate_upi_qr(vpa, name, amount):
     img.save(buf)
     return buf.getvalue()
 
-# ----------------- AUTHENTICATION & TRIAL LOCK -----------------
+# ----------------- AUTHENTICATION VIEW -----------------
 if not st.session_state["logged_in"]:
-    st.title("🔐 Tally Business Intelligence Portal")
-    menu = ["Login", "Register (7 Days Free Trial)"]
-    choice = st.selectbox("Action", menu)
+    st.markdown("""
+        <div style="text-align: center; margin-top: 40px; margin-bottom: 30px;">
+            <div class="badge-tag badge-primary">ENTERPRISE INTELLIGENCE</div>
+            <h1 style="font-weight: 800; font-size: 2.6rem; letter-spacing: -0.02em; margin-bottom: 8px;">Tally BI Portal</h1>
+            <p style="color: #94A3B8; font-size: 1.05rem;">Turn raw accounting exports into executive revenue & risk insights</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    if choice == "Login":
-        st.subheader("Account Login")
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
-        if st.button("Log In", use_container_width=True):
-            res = verify_user(u, p)
-            if res:
-                role, status, plan, created_at = res
-                
-                # Check Trial Expiry
-                is_expired = False
-                if status == "trial":
-                    c_date = datetime.datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
-                    days_passed = (datetime.datetime.now() - c_date).days
-                    if days_passed >= 7:
-                        is_expired = True
-                        status = "expired"
-                        c = conn.cursor()
-                        c.execute("UPDATE users SET status='expired' WHERE username=?", (u,))
-                        conn.commit()
+    col1, col2, col3 = st.columns([1, 1.8, 1])
+    with col2:
+        menu = ["Sign In", "Start 7-Day Free Trial"]
+        choice = st.segmented_control("Access Mode", menu, default="Sign In")
 
-                if is_expired or status == "expired":
-                    st.error("⛔ Aapka 7-Day Free Trial poora ho chuka hai. Kripya niche diye plan se renew karein.")
-                    st.session_state["logged_in"] = True
-                    st.session_state["username"] = u
-                    st.session_state["role"] = role
-                    st.session_state["status"] = "expired"
-                    st.session_state["plan"] = plan
-                    st.rerun()
-                elif status == "pending":
-                    st.warning("⚠️ Aapka payment verification pending hai. Admin approval ke baad dashboard chalu hoga.")
-                else:
-                    st.session_state["logged_in"] = True
-                    st.session_state["username"] = u
-                    st.session_state["role"] = role
-                    st.session_state["status"] = status
-                    st.session_state["plan"] = plan
-                    st.session_state["created_at"] = created_at
-                    st.rerun()
-            else:
-                st.error("Galat Username ya Password.")
+        if choice == "Sign In":
+            st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+            u = st.text_input("Username", placeholder="Enter your business ID")
+            p = st.text_input("Password", type="password", placeholder="••••••••")
+            if st.button("Log In to Dashboard", use_container_width=True, type="primary"):
+                res = verify_user(u, p)
+                if res:
+                    role, status, plan, created_at = res
+                    is_expired = False
+                    if status == "trial":
+                        c_date = datetime.datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                        if (datetime.datetime.now() - c_date).days >= 7:
+                            is_expired = True
+                            status = "expired"
+                            c = conn.cursor()
+                            c.execute("UPDATE users SET status='expired' WHERE username=?", (u,))
+                            conn.commit()
 
-    elif choice == "Register (7 Days Free Trial)":
-        st.subheader("Start 7 Days Free Trial (No Card Required)")
-        new_u = st.text_input("Choose Username")
-        new_p = st.text_input("Choose Password", type="password")
-        
-        st.info("💡 7 din ke trial ke baad Monthly (₹499) ya Yearly (₹2,999) plan chun sakte hain.")
-
-        if st.button("Activate Free Trial", use_container_width=True):
-            if new_u and new_p:
-                c = conn.cursor()
-                c.execute("SELECT * FROM users WHERE username=?", (new_u,))
-                if c.fetchone():
-                    st.error("Yeh Username pehle se maujood hai. Dusra username chunein.")
-                else:
-                    # Security Check: Device Abuse Prevention
-                    dev_hash = get_client_device_hash(new_u)
-                    prev_acc = check_device_trial_exists(dev_hash)
-                    
-                    if prev_acc:
-                        st.error(f"🚫 Anti-Abuse Alert: Is device/browser par pehle hi account `{prev_acc[0]}` ke liye Free Trial liya ja chuka hai. Nayi ID se dobara trial nahi liya ja sakta. Kripya subscribe karein.")
+                    if is_expired or status == "expired":
+                        st.session_state["logged_in"] = True
+                        st.session_state["username"] = u
+                        st.session_state["role"] = role
+                        st.session_state["status"] = "expired"
+                        st.session_state["plan"] = plan
+                        st.rerun()
+                    elif status == "pending":
+                        st.warning("⚠️ Payment verification under review. Dashboard will unlock upon Admin approval.")
                     else:
-                        add_user(new_u, new_p, role="client", status="trial", plan="Free Trial (7 Days)", device_hash=dev_hash, txn_id="FREE_TRIAL")
-                        st.success("🎉 7 Days Free Trial Activate ho gaya hai! Kripya 'Login' par jaakar sign in karein.")
-            else:
-                st.error("Kripya Username aur Password dono fill karein.")
+                        st.session_state["logged_in"] = True
+                        st.session_state["username"] = u
+                        st.session_state["role"] = role
+                        st.session_state["status"] = status
+                        st.session_state["plan"] = plan
+                        st.session_state["created_at"] = created_at
+                        st.rerun()
+                else:
+                    st.error("Invalid credentials provided.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        elif choice == "Start 7-Day Free Trial":
+            st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+            new_u = st.text_input("Choose Username", placeholder="e.g. enterprise_audit")
+            new_p = st.text_input("Choose Password", type="password", placeholder="••••••••")
+            
+            st.caption("🔒 7-day full access included. No credit card required.")
+            if st.button("Activate Free Trial", use_container_width=True, type="primary"):
+                if new_u and new_p:
+                    c = conn.cursor()
+                    c.execute("SELECT * FROM users WHERE username=?", (new_u,))
+                    if c.fetchone():
+                        st.error("Username is already claimed.")
+                    else:
+                        dev_hash = get_client_device_hash(new_u)
+                        prev_acc = check_device_trial_exists(dev_hash)
+                        if prev_acc:
+                            st.error(f"🚫 Abuse Prevention: A trial is already active for this workstation (`{prev_acc[0]}`). Please purchase a subscription.")
+                        else:
+                            add_user(new_u, new_p, role="client", status="trial", plan="Free Trial (7 Days)", device_hash=dev_hash, txn_id="FREE_TRIAL")
+                            st.success("🎉 Trial activated successfully! Switch to 'Sign In' to begin.")
+                else:
+                    st.error("Please fill in both fields.")
+            st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
 # ----------------- TRIAL EXPIRED PAYMENT SCREEN -----------------
 if st.session_state.get("status") == "expired":
-    st.error("🚨 AAPKA 7 DAYS TRIAL KHATAM HO GAYA HAI")
-    st.subheader("Dashboard ko dubara unlock karne ke liye subscription chunein:")
+    st.markdown("""
+        <div style="text-align: center; margin-top: 30px; margin-bottom: 25px;">
+            <div class="badge-tag badge-danger">TRIAL PERIOD EXPIRED</div>
+            <h2 style="font-weight: 700;">Renew Your Executive Access</h2>
+            <p style="color: #94A3B8;">Your 7-day evaluation has concluded. Select an ongoing license below to continue analysis.</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    plan_sel = st.radio(
-        "Choose Plan:",
-        ["Monthly Plan — ₹499 / Month", "Yearly Plan — ₹2,999 / Year (Best Value)"]
-    )
-    amt = 499 if "499" in plan_sel else 2999
-    p_name = "Monthly (₹499)" if amt == 499 else "Yearly (₹2999)"
-    
-    st.write(f"Payment Amount: **₹{amt}**")
-    st.write("UPI ID: `tanmayagarwal776@okhdfcbank`")
-    
-    qr_img = generate_upi_qr("tanmayagarwal776@okhdfcbank", "Tanmay Agarwal", amt)
-    st.image(qr_img, caption=f"Scan to Pay ₹{amt}")
-    
-    pay_tx = st.text_input("Payment karne ke baad 12-digit UPI / UTR Transaction ID daalein:")
-    if st.button("Submit Payment for Reactivation", use_container_width=True):
-        if pay_tx.strip():
-            update_user_payment(st.session_state["username"], p_name, pay_tx.strip())
-            st.success("✅ Payment ID submit ho gayi hai! Admin verification ke baad aapka account wapas chalu ho jayega.")
-        else:
-            st.error("Kripya valid UTR / Transaction number dalein.")
-            
-    if st.button("Logout"):
-        st.session_state.clear()
-        st.rerun()
+    c1, c2, c3 = st.columns([1, 1.8, 1])
+    with c2:
+        st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+        plan_sel = st.radio("Select Subscription Plan:", ["Monthly License — ₹499 / Month", "Annual Enterprise — ₹2,999 / Year (Best Value)"])
+        amt = 499 if "499" in plan_sel else 2999
+        p_name = "Monthly (₹499)" if amt == 499 else "Yearly (₹2999)"
+
+        col_q1, col_q2 = st.columns([1.2, 1])
+        with col_q1:
+            st.markdown(f"**Amount Due:** `₹{amt:,}`")
+            st.markdown("**UPI VPA:** `tanmayagarwal776@okhdfcbank`")
+            pay_tx = st.text_input("12-Digit Bank / UPI UTR Ref No:")
+        with col_q2:
+            qr_img = generate_upi_qr("tanmayagarwal776@okhdfcbank", "Tanmay Agarwal", amt)
+            st.image(qr_img, width=170)
+
+        if st.button("Submit License Verification", use_container_width=True, type="primary"):
+            if pay_tx.strip():
+                update_user_payment(st.session_state["username"], p_name, pay_tx.strip())
+                st.success("✅ Payment reference logged. Account unlocks immediately upon admin audit.")
+            else:
+                st.error("Valid transaction reference required.")
+
+        if st.button("Log Out"):
+            st.session_state.clear()
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# ----------------- LOGGED IN INTERFACE & TRIAL STATUS -----------------
-st.sidebar.markdown(f"👤 **User:** `{st.session_state['username']}`")
-if st.session_state["status"] == "trial":
-    c_date = datetime.datetime.strptime(st.session_state.get("created_at", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")), "%Y-%m-%d %H:%M:%S")
-    days_left = max(0, 7 - (datetime.datetime.now() - c_date).days)
-    st.sidebar.warning(f"⏳ Free Trial: **{days_left} Days Remaining**")
-else:
-    st.sidebar.success(f"⭐ Plan: **{st.session_state.get('plan', 'Active')}**")
+# ----------------- SIDEBAR WORKSPACE -----------------
+with st.sidebar:
+    st.markdown(f"""
+        <div style="padding: 12px 4px 18px 4px;">
+            <div style="font-size: 0.8rem; color: #64748B; font-weight: 600;">ACTIVE WORKSPACE</div>
+            <div style="font-size: 1.1rem; font-weight: 700; color: #F8FAFC;">{st.session_state['username']}</div>
+        </div>
+    """, unsafe_allow_html=True)
 
-if st.sidebar.button("Logout"):
-    st.session_state.clear()
-    st.rerun()
+    if st.session_state["status"] == "trial":
+        c_date = datetime.datetime.strptime(st.session_state.get("created_at", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")), "%Y-%m-%d %H:%M:%S")
+        days_left = max(0, 7 - (datetime.datetime.now() - c_date).days)
+        st.markdown(f'<div class="badge-tag badge-primary">Trial: {days_left} Days Remaining</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="badge-tag badge-success">{st.session_state.get("plan", "Enterprise License")}</div>', unsafe_allow_html=True)
 
-# ----------------- ADMIN PORTAL -----------------
-if st.session_state["role"] == "admin":
-    st.sidebar.markdown("---")
-    admin_mode = st.sidebar.radio("Admin Console", ["Use Bot & Dashboard", "Manage Subscriptions"])
+    if st.button("Sign Out", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+
+    st.markdown("---")
+
+    if st.session_state["role"] == "admin":
+        admin_mode = st.radio("Console Navigation", ["Analytics Dashboard", "License Approvals"])
+        if admin_mode == "License Approvals":
+            st.markdown("---")
+    else:
+        admin_mode = "Analytics Dashboard"
+
+    st.markdown("#### 📂 Tally Data Import")
+    uploaded_files = st.file_uploader(
+        "Drop Tally Reports (.xlsx, .xls, .csv)",
+        type=["xlsx", "xls", "csv"],
+        accept_multiple_files=True,
+        help="Upload Sales Register, Purchase Register, DayBook, or Bills Receivable."
+    )
+
+# ----------------- ADMIN APPROVAL INTERFACE -----------------
+if st.session_state["role"] == "admin" and admin_mode == "License Approvals":
+    st.markdown("## 💳 License Verification Queue")
+    c = conn.cursor()
+    pending_users = c.execute("SELECT username, plan, txn_id, status FROM users WHERE status='pending'").fetchall()
     
-    if admin_mode == "Manage Subscriptions":
-        st.title("💳 Subscription & Payment Verification Panel")
-        c = conn.cursor()
-        pending_users = c.execute("SELECT username, plan, txn_id, status FROM users WHERE status='pending'").fetchall()
-        
-        if pending_users:
-            st.info(f"Total Pending Requests: {len(pending_users)}")
-            for u_name, u_plan, tx_id, stat in pending_users:
-                col_u, col_pl, col_tx, col_btn = st.columns([2, 2, 3, 2])
-                col_u.write(f"**User:** {u_name}")
-                col_pl.write(f"**Plan:** {u_plan}")
-                col_tx.write(f"**Txn Ref:** `{tx_id if tx_id else 'Awaiting'}`")
-                if col_btn.button(f"Approve {u_name}", key=f"appr_{u_name}"):
+    if pending_users:
+        st.info(f"Requests Awaiting Verification: {len(pending_users)}")
+        for u_name, u_plan, tx_id, stat in pending_users:
+            with st.container():
+                st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+                col_u, col_pl, col_tx, col_btn = st.columns([2, 2, 3, 1.5])
+                col_u.markdown(f"**Client:** `{u_name}`")
+                col_pl.markdown(f"**Tier:** `{u_plan}`")
+                col_tx.markdown(f"**UTR:** `{tx_id if tx_id else 'Awaiting'}`")
+                if col_btn.button("Grant License", key=f"appr_{u_name}", type="primary"):
                     c.execute("UPDATE users SET status='approved' WHERE username=?", (u_name,))
                     conn.commit()
-                    st.success(f"{u_name} ka account approve kar diya gaya!")
+                    st.success(f"Access granted for {u_name}")
                     st.rerun()
-        else:
-            st.success("Sabhi subscriptions verified hain. Koi pending request nahi hai.")
-        st.stop()
+                st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.success("All client licenses are active. No verification backlog.")
+    st.stop()
 
-# ----------------- EXECUTIVE DASHBOARD & PARSING -----------------
-st.sidebar.markdown("---")
-st.sidebar.subheader("Upload Business Reports")
-uploaded_files = st.sidebar.file_uploader(
-    "Upload Tally Files (Sales, Bills Receivable, DayBook, Purchase)",
-    type=["xlsx", "xls", "csv"],
-    accept_multiple_files=True
-)
-
+# ----------------- MAIN EXECUTIVE DASHBOARD -----------------
 if uploaded_files:
     business_data = {
         "Sales": 0.0,
@@ -366,7 +469,7 @@ if uploaded_files:
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
-        # 1. PURCHASE FILE CHECK
+        # 1. PURCHASE PARSER
         if "purch" in fname or any("purch" in v for v in vch_types):
             business_data["Purchase_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -375,7 +478,7 @@ if uploaded_files:
                     val = fdf["Amount_1"].sum()
                 business_data["Purchase"] += val
 
-        # 2. SALES FILE CHECK
+        # 2. SALES PARSER
         elif "sale" in fname or any("sale" in v for v in vch_types) or "daybook" in fname:
             business_data["Sales_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -387,7 +490,7 @@ if uploaded_files:
                     if not top_c.empty:
                         business_data["Top_Customer"] = top_c.index[0]
 
-        # 3. RECEIVABLES / OUTSTANDING FILE CHECK
+        # 3. RECEIVABLES / OUTSTANDING PARSER
         elif "receivable" in fname or "bill" in fname or "outstand" in fname or "Days_Overdue" in fdf.columns:
             business_data["Receivables_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -398,42 +501,108 @@ if uploaded_files:
                     business_data["Overdue"] += overdue_rows["Amount"].sum()
                 business_data["Critical_60_Count"] += len(fdf[fdf["Days_Overdue"] >= 60])
 
-    # KPI Summary Cards
-    st.markdown("### 🚀 Executive Business KPI")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Monthly Sales", f"₹{business_data['Sales']:,.2f}")
-    c2.metric("Total Outstanding", f"₹{business_data['Outstanding']:,.2f}")
-    c3.metric("Overdue Dues", f"₹{business_data['Overdue']:,.2f}")
-    c4.metric("Top Customer", str(business_data['Top_Customer'])[:20])
+    # Top Executive Header
+    st.markdown("""
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+            <div>
+                <h2 style="font-weight: 800; margin-bottom: 4px; letter-spacing: -0.02em;">Executive Performance Dashboard</h2>
+                <p style="color: #94A3B8; font-size: 0.95rem; margin: 0;">Consolidated Financial & Risk Overview</p>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("---")
+    # Glassmorphism Top KPI Cards
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
+        st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">Revenue / Gross Sales</div>
+                <div class="metric-val">₹{business_data['Sales']:,.2f}</div>
+                <div class="metric-sub" style="color: #34D399;">● Reconciled Invoices</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with k2:
+        st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">Total Outstandings</div>
+                <div class="metric-val">₹{business_data['Outstanding']:,.2f}</div>
+                <div class="metric-sub" style="color: #FBBF24;">● Receivables Ledger</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with k3:
+        st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">Overdue Portfolio</div>
+                <div class="metric-val">₹{business_data['Overdue']:,.2f}</div>
+                <div class="metric-sub" style="color: #F87171;">● Due Date Exceeded</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with k4:
+        st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">Key Revenue Driver</div>
+                <div class="metric-val" style="font-size: 1.35rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                    {str(business_data['Top_Customer'])[:17]}
+                </div>
+                <div class="metric-sub" style="color: #818CF8;">● Top Volume Account</div>
+            </div>
+        """, unsafe_allow_html=True)
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        gross_diff = business_data["Sales"] - business_data["Purchase"]
-        st.info(f"**Total Purchases:** ₹{business_data['Purchase']:,.2f} | **Gross Margin:** ₹{gross_diff:,.2f}")
-    with col_b:
-        st.error(f"**Critical Overdue (60+ Days Risk):** {business_data['Critical_60_Count']} Parties Pending")
+    # Sub-KPI Cards Row
+    gross_diff = business_data["Sales"] - business_data["Purchase"]
+    c_sub1, c_sub2 = st.columns(2)
+    with c_sub1:
+        st.markdown(f"""
+            <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">TOTAL PROCUREMENT</div>
+                    <div style="font-size: 1.3rem; font-weight: 700;">₹{business_data['Purchase']:,.2f}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">ESTIMATED SPREAD / MARGIN</div>
+                    <div style="font-size: 1.3rem; font-weight: 700; color: {'#34D399' if gross_diff >= 0 else '#F87171'};">₹{gross_diff:,.2f}</div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    with c_sub2:
+        st.markdown(f"""
+            <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">CRITICAL RISK LEDGER</div>
+                    <div style="font-size: 1.3rem; font-weight: 700; color: #F87171;">{business_data['Critical_60_Count']} Overdue Accounts</div>
+                </div>
+                <div class="badge-tag badge-danger" style="margin: 0;">ACTION: 60+ DAYS DUES</div>
+            </div>
+        """, unsafe_allow_html=True)
 
-    st.markdown("### 📑 Detailed Registers & Breakdown")
-    tab1, tab2, tab3 = st.tabs(["Sales Register", "Purchase Register", "Receivables & Outstandings"])
+    # Data Tabs
+    st.markdown("### 📑 Detailed Ledgers & Registers")
+    tab1, tab2, tab3 = st.tabs(["📊 Sales Register", "📦 Purchase Register", "⚠️ Receivables & Risk"])
     
     with tab1:
         if business_data["Sales_DF"] is not None:
-            st.dataframe(business_data["Sales_DF"], use_container_width=True)
+            st.dataframe(business_data["Sales_DF"], use_container_width=True, height=400)
         else:
-            st.info("Sales Register file upload hone par yahan display hogi.")
+            st.info("Upload Sales Register to populate individual customer transactions.")
 
     with tab2:
         if business_data["Purchase_DF"] is not None:
-            st.dataframe(business_data["Purchase_DF"], use_container_width=True)
+            st.dataframe(business_data["Purchase_DF"], use_container_width=True, height=400)
         else:
-            st.info("Purchase Register file upload hone par yahan display hogi.")
+            st.info("Upload Purchase Register to inspect vendor expense ledgers.")
             
     with tab3:
         if business_data["Receivables_DF"] is not None:
-            st.dataframe(business_data["Receivables_DF"], use_container_width=True)
+            st.dataframe(business_data["Receivables_DF"], use_container_width=True, height=400)
         else:
-            st.info("Bills Receivable upload hone par overdue analysis yahan aayega.")
+            st.info("Upload Bills Receivable to populate aged debt and risk distributions.")
 else:
-    st.info("ℹ️ Kripya Tally ki reports (Sales, Purchase, Receivables) sidebar se upload karein.")
+    st.markdown("""
+        <div style="text-align: center; padding: 60px 20px; border: 1px dashed rgba(255,255,255,0.15); border-radius: 18px; margin-top: 20px;">
+            <div style="font-size: 2.8rem; margin-bottom: 10px;">📊</div>
+            <h3 style="font-weight: 700;">No Financial Reports Loaded</h3>
+            <p style="color: #94A3B8; max-width: 500px; margin: auto;">
+                Drop your Tally export files (Sales Register, Purchase Register, Bills Receivable, or DayBook) into the sidebar uploader to generate analytics.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
