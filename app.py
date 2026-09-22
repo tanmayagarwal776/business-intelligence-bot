@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
-    page_title="Tally Executive Financial Intelligence",
+    page_title="Tally Executive BI Suite",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -67,6 +67,15 @@ st.markdown("""
         border-radius: 14px;
         padding: 18px 22px;
         margin-bottom: 15px;
+    }
+
+    .support-box {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px dashed rgba(99, 102, 241, 0.35);
+        border-radius: 12px;
+        padding: 12px 16px;
+        margin-top: 15px;
+        text-align: center;
     }
 
     section[data-testid="stSidebar"] {
@@ -148,7 +157,7 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- TALLY MULTI-REPORT PARSER -----------------
+# ----------------- TALLY DATA PARSER ENGINE -----------------
 def load_tally_file(uploaded_file):
     try:
         uploaded_file.seek(0)
@@ -167,7 +176,7 @@ def load_tally_file(uploaded_file):
         return pd.DataFrame()
 
     header_idx = None
-    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'expense', 'income']
+    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'month', 'july', 'august']
     
     for idx, row in raw_df.iterrows():
         row_values = [str(val).strip().lower() for val in row.values if pd.notna(val)]
@@ -208,13 +217,11 @@ def load_tally_file(uploaded_file):
             
     df = df.rename(columns=col_rename)
     
-    # Handle Duplicate Column Headers
     cols = pd.Series(df.columns)
     for dup in cols[cols.duplicated()].unique():
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
-    
-    # Numeric conversions
+
     amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
     for ac in amt_cols:
         df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
@@ -223,25 +230,18 @@ def load_tally_file(uploaded_file):
         if "Amount" not in df.columns or df["Amount"].sum() == 0:
             df["Amount"] = df["Amount_1"]
         elif df["Amount_1"].sum() > 0 and df["Amount"].sum() > 0:
-            df["Amount"] = df[["Amount", "Amount_1"]].max(axis=1)
+            df["Amount"] = df.apply(lambda r: r["Amount_1"] if r["Amount"] == 0 else r["Amount"], axis=1)
 
     if "Days_Overdue" in df.columns:
         df["Days_Overdue"] = pd.to_numeric(df["Days_Overdue"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
 
-    # Summary Row Strip
-    for check_col in ["Party Name", "Date", "Vch Type", "Vch No."]:
-        if check_col in df.columns:
-            df = df[~df[check_col].astype(str).str.lower().str.contains('total|grand total|closing balance', na=False)]
+    is_summary_row = df.astype(str).apply(lambda row: row.str.lower().str.contains('grand total|total:|closing balance|average', na=False)).any(axis=1)
+    df = df[~is_summary_row]
 
     if "Party Name" in df.columns:
         df["Party Name"] = df["Party Name"].replace(['None', 'nan', '', None], pd.NA).ffill()
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
-        df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', ''])]
-
-    if "Vch No." in df.columns and "Date" in df.columns:
-        df = df[~(df["Vch No."].isna() & df["Date"].isna())]
-    elif "Date" in df.columns:
-        df = df[df["Date"].notna() & (~df["Date"].astype(str).str.lower().isin(['none', 'nan', '']))]
+        df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', 'total'])]
 
     df = df.reset_index(drop=True)
     return df
@@ -268,7 +268,7 @@ def generate_upi_qr(vpa, name, amount):
 # ----------------- AUTHENTICATION VIEW -----------------
 if not st.session_state["logged_in"]:
     st.markdown("""
-        <div style="text-align: center; margin-top: 40px; margin-bottom: 30px;">
+        <div style="text-align: center; margin-top: 40px; margin-bottom: 25px;">
             <div class="badge-tag badge-primary">ENTERPRISE INTELLIGENCE</div>
             <h1 style="font-weight: 800; font-size: 2.6rem; letter-spacing: -0.02em; margin-bottom: 8px;">Tally Executive Suite</h1>
             <p style="color: #94A3B8; font-size: 1.05rem;">Turn raw accounting registers into executive P&L, working capital & risk insights</p>
@@ -317,6 +317,14 @@ if not st.session_state["logged_in"]:
                         st.rerun()
                 else:
                     st.error("Invalid username or password.")
+
+            # Helpline Badge on Login
+            st.markdown("""
+                <div class="support-box">
+                    <span style="color: #94A3B8; font-size: 0.85rem;">📞 Need assistance? Customer Care:</span><br>
+                    <a href="tel:7016882039" style="color: #818CF8; font-weight: 700; text-decoration: none; font-size: 1rem;">+91 7016882039</a>
+                </div>
+            """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         elif choice == "Start 7-Day Free Trial":
@@ -338,7 +346,7 @@ if not st.session_state["logged_in"]:
                             st.error(f"🚫 Abuse Prevention: A trial is already active for this workstation (`{prev_acc[0]}`). Please purchase a subscription.")
                         else:
                             add_user(new_u, new_p, role="client", status="trial", plan="Free Trial (7 Days)", device_hash=dev_hash, txn_id="FREE_TRIAL")
-                            st.success("🎉 Trial activated successfully! Switch to 'Sign In' to begin.")
+                            st.success("🎉 Trial activated successfully! Switch to 'Sign In' tab to begin.")
                 else:
                     st.error("Please fill in both fields.")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -377,6 +385,13 @@ if st.session_state.get("status") == "expired":
             else:
                 st.error("Valid transaction reference required.")
 
+        st.markdown("""
+            <div class="support-box">
+                <span style="color: #94A3B8; font-size: 0.85rem;">💬 Payment or Verification Query?</span><br>
+                <b>Customer Care:</b> <a href="https://wa.me/917016882039" style="color: #34D399; font-weight: 700; text-decoration: none;">+91 7016882039</a>
+            </div>
+        """, unsafe_allow_html=True)
+
         if st.button("Log Out"):
             st.session_state.clear()
             st.rerun()
@@ -407,12 +422,10 @@ with st.sidebar:
 
     if st.session_state["role"] == "admin":
         admin_mode = st.radio("Console Navigation", ["Analytics Dashboard", "License Approvals"])
-        if admin_mode == "License Approvals":
-            st.markdown("---")
     else:
         admin_mode = "Analytics Dashboard"
 
-    # Business Rules
+    # Dynamic Credit Period Slider
     st.markdown("#### ⚙️ Business Rules")
     credit_days_threshold = st.slider(
         "Standard Credit Period (Days)", 
@@ -420,7 +433,7 @@ with st.sidebar:
         max_value=180, 
         value=65, 
         step=5,
-        help="Salt, Manufacturing ya FMCG ke mutabiq allowed credit days set karein."
+        help="Allowed credit days set karein."
     )
 
     st.markdown("---")
@@ -431,6 +444,19 @@ with st.sidebar:
         accept_multiple_files=True,
         help="Drop Sales, Purchase, Receivables, Payables, or P&L statement files."
     )
+
+    st.markdown("---")
+    # Customer Care Widget in Sidebar
+    st.markdown("""
+        <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px; text-align: center;">
+            <div style="font-size: 0.75rem; color: #94A3B8; font-weight: 600; text-transform: uppercase;">Helpdesk & Support</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: #38BDF8; margin-top: 4px;">7016882039</div>
+            <div style="margin-top: 8px;">
+                <a href="https://wa.me/917016882039" target="_blank" style="background: rgba(34, 197, 94, 0.2); color: #4ADE80; padding: 4px 10px; border-radius: 6px; text-decoration: none; font-size: 0.8rem; font-weight: 600; border: 1px solid rgba(34, 197, 94, 0.3);">WhatsApp</a>
+                <a href="tel:7016882039" style="background: rgba(99, 102, 241, 0.2); color: #818CF8; padding: 4px 10px; border-radius: 6px; text-decoration: none; font-size: 0.8rem; font-weight: 600; border: 1px solid rgba(99, 102, 241, 0.3); margin-left: 6px;">Call</a>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
 # ----------------- ADMIN APPROVAL INTERFACE -----------------
 if st.session_state["role"] == "admin" and admin_mode == "License Approvals":
@@ -482,7 +508,6 @@ if uploaded_files:
             continue
 
         fname = f.name.lower()
-        cols_text = " ".join([str(c).lower() for c in fdf.columns])
         vch_types = []
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
@@ -497,10 +522,7 @@ if uploaded_files:
         elif "purch" in fname or any("purch" in v for v in vch_types):
             business_data["Purchase_DF"] = fdf
             if "Amount" in fdf.columns:
-                val = fdf["Amount"].sum()
-                if val == 0 and "Amount_1" in fdf.columns:
-                    val = fdf["Amount_1"].sum()
-                business_data["Purchase"] += val
+                business_data["Purchase"] += fdf["Amount"].sum()
 
         # 3. SALES REGISTER / DAYBOOK
         elif "sale" in fname or any("sale" in v for v in vch_types) or "daybook" in fname:
@@ -530,7 +552,6 @@ if uploaded_files:
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
             if "Amount" in fdf.columns and "Party Name" in fdf.columns:
-                # Classify direct vs indirect expenses
                 for _, r in fdf.iterrows():
                     p_name = str(r["Party Name"]).lower()
                     amt = float(r["Amount"])
@@ -539,7 +560,7 @@ if uploaded_files:
                     else:
                         business_data["Indirect_Expenses"] += amt
 
-    # Core Calculations
+    # Calculations
     gross_profit = business_data["Sales"] - (business_data["Purchase"] + business_data["Direct_Expenses"])
     net_profit = gross_profit - business_data["Indirect_Expenses"]
     net_liquidity = business_data["Outstanding"] - business_data["Payables"]
@@ -591,7 +612,7 @@ if uploaded_files:
             </div>
         """, unsafe_allow_html=True)
 
-    # Profit & Loss Statement Summary Card
+    # Profit & Loss Statement Summary
     st.markdown("### 📈 Profit & Loss Summary (Tally Mode)")
     pl_c1, pl_c2, pl_c3, pl_c4 = st.columns(4)
     pl_c1.metric("Gross Turnover", f"₹{business_data['Sales']:,.2f}")
@@ -601,7 +622,7 @@ if uploaded_files:
 
     st.markdown("---")
 
-    # Risk & Procurement Row
+    # Key Revenue & Risk Row
     c_sub1, c_sub2 = st.columns(2)
     with c_sub1:
         st.markdown(f"""
@@ -624,7 +645,7 @@ if uploaded_files:
             </div>
         """, unsafe_allow_html=True)
 
-    # Detailed Ledgers & Analysis Tabs
+    # Detailed Ledgers & Registers Tabs
     st.markdown("### 📑 Detailed Accounting Registers")
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Sales Register", 
@@ -638,19 +659,19 @@ if uploaded_files:
         if business_data["Sales_DF"] is not None:
             st.dataframe(business_data["Sales_DF"], use_container_width=True, height=400)
         else:
-            st.info("Sales Register upload hone par customer transactions yahan display honge.")
+            st.info("Sales Register upload hone par yahan display hogi.")
 
     with tab2:
         if business_data["Purchase_DF"] is not None:
             st.dataframe(business_data["Purchase_DF"], use_container_width=True, height=400)
         else:
-            st.info("Purchase Register upload hone par vendor billing details yahan display hogi.")
+            st.info("Purchase Register upload hone par yahan display hogi.")
             
     with tab3:
         if business_data["Receivables_DF"] is not None:
             st.dataframe(business_data["Receivables_DF"], use_container_width=True, height=400)
         else:
-            st.info("Bills Receivable upload hone par aged customer dues yahan aayenge.")
+            st.info("Bills Receivable upload hone par overdue customer dues yahan aayenge.")
 
     with tab4:
         if business_data["Payables_DF"] is not None:
@@ -662,7 +683,7 @@ if uploaded_files:
         if business_data["PL_DF"] is not None:
             st.dataframe(business_data["PL_DF"], use_container_width=True, height=400)
         else:
-            st.info("Profit & Loss / Expense report upload hone par itemized overheads yahan load honge.")
+            st.info("Profit & Loss / Expense statement upload hone par itemized records yahan load honge.")
 else:
     st.markdown("""
         <div style="text-align: center; padding: 60px 20px; border: 1px dashed rgba(255,255,255,0.15); border-radius: 18px; margin-top: 20px;">
