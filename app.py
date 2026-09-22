@@ -121,7 +121,6 @@ def init_db():
 
 conn = init_db()
 
-# DB Migration check if phone column missing
 def migrate_db_schema():
     c = conn.cursor()
     c.execute("PRAGMA table_info(users)")
@@ -174,7 +173,7 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- EXTENSIVE XML EXTRACTION (TRANSACTIONS + STOCK + P&L) -----------------
+# ----------------- ACCURATE INVENTORY & P&L XML EXTRACTION -----------------
 def extract_all_from_xml(uploaded_file):
     uploaded_file.seek(0)
     raw_content = uploaded_file.read()
@@ -190,7 +189,7 @@ def extract_all_from_xml(uploaded_file):
 
     vch_blocks = re.findall(r'<VOUCHER\b[^>]*>(.*?)</VOUCHER>', content_str, re.DOTALL | re.IGNORECASE)
     vouchers = []
-    stock_records = []
+    item_balances = {}  # {item_name: {"net_qty": 0.0, "net_val": 0.0, "unit": "bag", "rate": 0.0}}
     expense_records = []
     current_date = datetime.date.today()
 
@@ -239,7 +238,10 @@ def extract_all_from_xml(uploaded_file):
                 "Days_Overdue": days_old
             })
 
-        # Inventory Items Extract
+        # Net Closing Stock Engine (Inwards: +, Outwards: -)
+        is_purchase = any(x in v_type.lower() for x in ["purchase", "receipt note"])
+        is_sale = any(x in v_type.lower() for x in ["sale", "delivery note"])
+
         inv_blocks = re.findall(r'<ALLINVENTORYENTRIES\.LIST\b[^>]*>(.*?)</ALLINVENTORYENTRIES\.LIST>', block, re.DOTALL | re.IGNORECASE)
         for ib in inv_blocks:
             item_name_m = re.search(r'<STOCKITEMNAME[^>]*>(.*?)</', ib, re.IGNORECASE)
@@ -249,17 +251,36 @@ def extract_all_from_xml(uploaded_file):
             
             if item_name_m:
                 it_name = item_name_m.group(1).strip()
+                it_name = re.sub(r'&amp;', '&', it_name)
                 it_amt = abs(float(amt_m.group(1))) if amt_m else 0.0
-                stock_records.append({
-                    "Date": v_date_clean,
-                    "Stock Item": it_name,
-                    "Voucher Type": v_type,
-                    "Quantity": qty_m.group(1).strip() if qty_m else "1",
-                    "Rate": rate_m.group(1).strip() if rate_m else "-",
-                    "Amount": it_amt
-                })
+                
+                # Parse numeric quantity
+                raw_qty_str = qty_m.group(1).strip() if qty_m else "0"
+                qty_val_m = re.search(r'([+-]?\d+(?:\.\d+)?)', raw_qty_str)
+                num_qty = float(qty_val_m.group(1)) if qty_val_m else 0.0
+                unit_str = re.sub(r'[0-9\.\+\-\s]', '', raw_qty_str) or "bag"
 
-        # Expense and Indirect Ledgers for P&L
+                # Parse rate
+                raw_rate_str = rate_m.group(1).strip() if rate_m else "0"
+                rate_val_m = re.search(r'([+-]?\d+(?:\.\d+)?)', raw_rate_str)
+                num_rate = float(rate_val_m.group(1)) if rate_val_m else (it_amt / num_qty if num_qty != 0 else 0.0)
+
+                if it_name not in item_balances:
+                    item_balances[it_name] = {"net_qty": 0.0, "net_val": 0.0, "unit": unit_str, "last_rate": num_rate}
+
+                if is_purchase:
+                    item_balances[it_name]["net_qty"] += num_qty
+                    item_balances[it_name]["net_val"] += it_amt
+                    if num_rate > 0:
+                        item_balances[it_name]["last_rate"] = num_rate
+                elif is_sale:
+                    item_balances[it_name]["net_qty"] -= num_qty
+                    item_balances[it_name]["net_val"] -= it_amt
+                else:
+                    item_balances[it_name]["net_qty"] += num_qty
+                    item_balances[it_name]["net_val"] += it_amt
+
+        # Overheads for P&L
         led_blocks = re.findall(r'<ALLLEDGERENTRIES\.LIST\b[^>]*>(.*?)</ALLLEDGERENTRIES\.LIST>', block, re.DOTALL | re.IGNORECASE)
         for lb in led_blocks:
             led_name_m = re.search(r'<LEDGERNAME[^>]*>(.*?)</', lb, re.IGNORECASE)
@@ -277,8 +298,18 @@ def extract_all_from_xml(uploaded_file):
                         "Amount": lamt
                     })
 
+    # Convert inventory dictionary to clean item-wise summary (Matching Tally Stock Summary)
+    stock_summary_rows = []
+    for it_k, it_v in item_balances.items():
+        stock_summary_rows.append({
+            "Particulars (Stock Item)": it_k,
+            "Closing Quantity": f"{it_v['net_qty']:,.0f} {it_v['unit']}",
+            "Effective Rate": f"₹{it_v['last_rate']:,.2f}",
+            "Closing Value": round(it_v['net_val'], 2)
+        })
+
     vch_df = pd.DataFrame(vouchers) if vouchers else pd.DataFrame()
-    stk_df = pd.DataFrame(stock_records) if stock_records else pd.DataFrame()
+    stk_df = pd.DataFrame(stock_summary_rows) if stock_summary_rows else pd.DataFrame()
     exp_df = pd.DataFrame(expense_records) if expense_records else pd.DataFrame()
     return vch_df, stk_df, exp_df
 
@@ -304,7 +335,7 @@ def load_tally_file(uploaded_file):
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     header_idx = None
-    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'month', 'july', 'stock', 'balance', 'closing', 'ref']
+    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'month', 'july', 'stock', 'balance', 'closing', 'ref', 'value']
     
     for idx, row in raw_df.iterrows():
         row_values = [str(val).strip().lower() for val in row.values if pd.notna(val)]
@@ -402,7 +433,7 @@ def generate_upi_qr(vpa, name, amount):
     img.save(buf)
     return buf.getvalue()
 
-# ----------------- AUTHENTICATION WITH PHONE & OTP -----------------
+# ----------------- AUTHENTICATION -----------------
 if not st.session_state["logged_in"]:
     st.markdown("""
         <div style="text-align: center; margin-top: 40px; margin-bottom: 25px;">
@@ -429,7 +460,6 @@ if not st.session_state["logged_in"]:
                         res = verify_user_creds(u, p)
                         if res:
                             reg_phone, role, status, plan, created_at = res
-                            # Direct check
                             otp = str(random.randint(100000, 999999))
                             st.session_state["generated_otp"] = otp
                             st.session_state["otp_sent"] = True
@@ -479,7 +509,7 @@ if not st.session_state["logged_in"]:
 
             st.markdown("""
                 <div class="support-box">
-                    <span style="color: #94A3B8; font-size: 0.85rem;">📞 Helpline & Instant Verification:</span><br>
+                    <span style="color: #94A3B8; font-size: 0.85rem;">📞 Helpline & Support:</span><br>
                     <a href="tel:7016882039" style="color: #818CF8; font-weight: 700; text-decoration: none; font-size: 1rem;">+91 7016882039</a>
                 </div>
             """, unsafe_allow_html=True)
@@ -600,7 +630,7 @@ with st.sidebar:
         "Upload Tally Files (.xlsx, .xls, .csv, .xml)",
         type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
-        help="Tally Transactions.xml ya Excel exports upload karein."
+        help="Tally Transactions.xml ya Stock Summary Excel exports upload karein."
     )
 
     st.markdown("---")
@@ -681,7 +711,7 @@ if uploaded_files:
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
-        # XML Parsing Distribution
+        # XML Parsing
         if fname.endswith('.xml'):
             s_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
             if not s_rows.empty:
@@ -711,11 +741,11 @@ if uploaded_files:
                 msme_overdue_xml = py_rows[py_rows["Days_Overdue"] >= 45]
                 business_data["MSME_Critical_Dues"] += msme_overdue_xml["Amount"].sum()
 
-        # Standalone Stock Sheet
+        # Standalone Stock Summary Sheet (Excel)
         elif "stock" in fname or "inventory" in fname:
             business_data["Stock_DF"] = fdf
             if "Amount" in fdf.columns:
-                business_data["Closing_Stock"] += fdf["Amount"].sum()
+                business_data["Closing_Stock"] = fdf["Amount"].sum()
 
         elif "payable" in fname or "creditor" in fname:
             business_data["Payables_DF"] = fdf
@@ -756,11 +786,21 @@ if uploaded_files:
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
 
-    # Auto-consolidate Stock & P&L from XML extraction if separate sheets not uploaded
+    # Auto-consolidate Stock & P&L from XML extraction if separate Excel not uploaded
     if business_data["Stock_DF"] is None and xml_stock_accumulator:
         consolidated_stk = pd.concat(xml_stock_accumulator, ignore_index=True)
-        business_data["Stock_DF"] = consolidated_stk
-        business_data["Closing_Stock"] = consolidated_stk["Amount"].sum()
+        # Group by Stock Item name to give clean closing balance
+        if "Particulars (Stock Item)" in consolidated_stk.columns:
+            stk_grouped = consolidated_stk.groupby("Particulars (Stock Item)").agg({
+                "Closing Quantity": "last",
+                "Effective Rate": "last",
+                "Closing Value": "sum"
+            }).reset_index()
+            business_data["Stock_DF"] = stk_grouped
+            business_data["Closing_Stock"] = stk_grouped["Closing Value"].sum()
+        else:
+            business_data["Stock_DF"] = consolidated_stk
+            business_data["Closing_Stock"] = consolidated_stk["Closing Value"].sum() if "Closing Value" in consolidated_stk.columns else 0.0
 
     if business_data["PL_DF"] is None and xml_expense_accumulator:
         consolidated_exp = pd.concat(xml_expense_accumulator, ignore_index=True)
@@ -865,7 +905,7 @@ if uploaded_files:
                 <div style="font-weight: 700; font-size: 1.05rem; color: #F8FAFC; margin-bottom: 8px;">Compliance & Audit Check</div>
                 <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
                     <span style="color: #94A3B8;">Closing Stock Valuation:</span>
-                    <b>₹{business_data['Closing_Stock']:,.2f}</b>
+                    <b style="color: {'#F87171' if business_data['Closing_Stock'] < 0 else '#F8FAFC'};">₹{business_data['Closing_Stock']:,.2f}</b>
                 </div>
                 <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
                     <span style="color: #94A3B8;">MSME 45-Day Dues (Sec 43B(h)):</span>
