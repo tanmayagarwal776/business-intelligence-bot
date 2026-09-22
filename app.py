@@ -158,12 +158,11 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- ROBUST DIRECT REGEX TALLY XML EXTRACTOR -----------------
+# ----------------- DIRECT REGEX XML PARSER WITH DATE CALCULATION -----------------
 def extract_vouchers_from_xml_direct(uploaded_file):
     uploaded_file.seek(0)
     raw_content = uploaded_file.read()
     
-    # Fast multi-encoding decode
     for enc in ['utf-8', 'utf-16', 'latin-1', 'cp1252']:
         try:
             content_str = raw_content.decode(enc)
@@ -173,9 +172,9 @@ def extract_vouchers_from_xml_direct(uploaded_file):
     else:
         content_str = raw_content.decode('latin-1', errors='replace')
 
-    # Regex patterns for Tally XML structure
     vch_blocks = re.findall(r'<VOUCHER\b[^>]*>(.*?)</VOUCHER>', content_str, re.DOTALL | re.IGNORECASE)
     vouchers = []
+    current_date = datetime.date.today()
 
     for block in vch_blocks:
         v_type_m = re.search(r'<(?:VOUCHERTYPENAME|VCHTYPE)[^>]*>(.*?)</', block, re.IGNORECASE)
@@ -184,15 +183,24 @@ def extract_vouchers_from_xml_direct(uploaded_file):
         p_name_m = re.search(r'<(?:PARTYLEDGERNAME|PARTYNAME)[^>]*>(.*?)</', block, re.IGNORECASE)
         
         v_type = v_type_m.group(1).strip() if v_type_m else ""
-        v_date = v_date_m.group(1).strip() if v_date_m else ""
+        v_date_raw = v_date_m.group(1).strip() if v_date_m else ""
         v_no = v_no_m.group(1).strip() if v_no_m else ""
         p_name = p_name_m.group(1).strip() if p_name_m else "Sundry Party"
         
-        # Clean entities
         p_name = re.sub(r'&amp;', '&', p_name)
         p_name = re.sub(r'&#[0-9xX]+;', '', p_name)
 
-        # Extract all amounts inside voucher
+        # Calculate Age in Days from Tally Date format (YYYYMMDD)
+        days_old = 0
+        v_date_clean = v_date_raw
+        if len(v_date_raw) == 8 and v_date_raw.isdigit():
+            try:
+                dt_obj = datetime.datetime.strptime(v_date_raw, "%Y%m%d").date()
+                v_date_clean = dt_obj.strftime("%Y-%m-%d")
+                days_old = max(0, (current_date - dt_obj).days)
+            except Exception:
+                pass
+
         amt_matches = re.findall(r'<(?:AMOUNT|PAIDAMOUNT)[^>]*>\s*([+-]?\d+(?:\.\d+)?)\s*</', block, re.IGNORECASE)
         max_amt = 0.0
         for am in amt_matches:
@@ -205,12 +213,12 @@ def extract_vouchers_from_xml_direct(uploaded_file):
                 
         if max_amt > 0:
             vouchers.append({
-                "Date": v_date,
+                "Date": v_date_clean,
                 "Vch Type": v_type,
                 "Vch No.": v_no,
                 "Party Name": p_name,
                 "Amount": max_amt,
-                "Days_Overdue": 0
+                "Days_Overdue": days_old
             })
 
     if vouchers:
@@ -602,11 +610,20 @@ if uploaded_files:
             if not r_rows.empty:
                 business_data["Receivables_DF"] = r_rows
                 business_data["Outstanding"] += r_rows["Amount"].sum()
+                
+                # Dynamic XML Overdue Calculation
+                overdue_r = r_rows[r_rows["Days_Overdue"] >= credit_days_threshold]
+                business_data["Overdue"] += overdue_r["Amount"].sum()
+                business_data["Critical_Count"] += len(overdue_r)
 
             py_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("payment|payab", na=False)]
             if not py_rows.empty:
                 business_data["Payables_DF"] = py_rows
                 business_data["Payables"] += py_rows["Amount"].sum()
+                
+                # MSME 45-day calculation from XML
+                msme_overdue_xml = py_rows[py_rows["Days_Overdue"] >= 45]
+                business_data["MSME_Critical_Dues"] += msme_overdue_xml["Amount"].sum()
 
         # 2. STOCK SUMMARY EXCEL
         elif "stock" in fname or "inventory" in fname:
@@ -681,7 +698,7 @@ if uploaded_files:
         </div>
     """, unsafe_allow_html=True)
 
-    # 4 Core KPI Cards
+    # 4 Core KPI Cards (Overdue Portfolio live dynamically)
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(f"""
@@ -704,7 +721,7 @@ if uploaded_files:
             <div class="metric-card">
                 <div class="metric-label">Overdue Portfolio</div>
                 <div class="metric-val" style="color: #F87171;">₹{business_data['Overdue']:,.2f}</div>
-                <div class="metric-sub" style="color: #F87171;">● Due Date Crossed</div>
+                <div class="metric-sub" style="color: #F87171;">● Due Date Crossed ({credit_days_threshold}+ Days)</div>
             </div>
         """, unsafe_allow_html=True)
     with k4:
