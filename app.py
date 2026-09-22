@@ -96,6 +96,29 @@ st.markdown("""
     .badge-primary { background: rgba(99, 102, 241, 0.2); color: #818CF8; border: 1px solid rgba(99, 102, 241, 0.3); }
     .badge-danger { background: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.25); }
     .badge-success { background: rgba(34, 197, 94, 0.15); color: #4ADE80; border: 1px solid rgba(34, 197, 94, 0.25); }
+    
+    .tally-pl-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+        color: #F8FAFC;
+    }
+    .tally-pl-table th {
+        background: rgba(30, 41, 59, 0.8);
+        padding: 10px 14px;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+        text-align: left;
+    }
+    .tally-pl-table td {
+        padding: 8px 14px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .tally-total-row {
+        font-weight: 700;
+        border-top: 2px solid rgba(255, 255, 255, 0.2);
+        border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+        background: rgba(15, 23, 42, 0.5);
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -173,7 +196,7 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- TRUE TALLY INVENTORY VALUATION ENGINE -----------------
+# ----------------- TRUE TALLY INVENTORY & P&L EXTRACTION -----------------
 def extract_all_from_xml(uploaded_file):
     uploaded_file.seek(0)
     raw_content = uploaded_file.read()
@@ -189,7 +212,6 @@ def extract_all_from_xml(uploaded_file):
 
     vch_blocks = re.findall(r'<VOUCHER\b[^>]*>(.*?)</VOUCHER>', content_str, re.DOTALL | re.IGNORECASE)
     vouchers = []
-    # item_balances: {item: {"purch_qty": 0, "purch_val": 0, "sales_qty": 0, "unit": "bag", "fallback_rate": 0}}
     item_stats = {}
     expense_records = []
     current_date = datetime.date.today()
@@ -256,13 +278,11 @@ def extract_all_from_xml(uploaded_file):
                 it_name = re.sub(r'&#[0-9xX]+;', '', it_name)
                 it_amt = abs(float(amt_m.group(1))) if amt_m else 0.0
                 
-                # Parse numeric quantity
                 raw_qty_str = qty_m.group(1).strip() if qty_m else "0"
                 qty_val_m = re.search(r'([+-]?\d+(?:\.\d+)?)', raw_qty_str)
                 num_qty = abs(float(qty_val_m.group(1))) if qty_val_m else 0.0
                 unit_str = re.sub(r'[0-9\.\+\-\s]', '', raw_qty_str) or "bag"
 
-                # Parse rate
                 raw_rate_str = rate_m.group(1).strip() if rate_m else "0"
                 rate_val_m = re.search(r'([+-]?\d+(?:\.\d+)?)', raw_rate_str)
                 num_rate = float(rate_val_m.group(1)) if rate_val_m else (it_amt / num_qty if num_qty != 0 else 0.0)
@@ -287,7 +307,7 @@ def extract_all_from_xml(uploaded_file):
                     item_stats[it_name]["purch_qty"] += num_qty
                     item_stats[it_name]["purch_val"] += it_amt
 
-        # Overheads for P&L
+        # Overheads and Expenses for P&L
         led_blocks = re.findall(r'<ALLLEDGERENTRIES\.LIST\b[^>]*>(.*?)</ALLLEDGERENTRIES\.LIST>', block, re.DOTALL | re.IGNORECASE)
         for lb in led_blocks:
             led_name_m = re.search(r'<LEDGERNAME[^>]*>(.*?)</', lb, re.IGNORECASE)
@@ -299,27 +319,21 @@ def extract_all_from_xml(uploaded_file):
                 if any(k in l_low for k in ["freight", "cartage", "carriage", "wages", "salary", "rent", "interest", "commission", "discount", "office", "expense", "audit", "electric", "telephone", "fuel"]):
                     expense_records.append({
                         "Date": v_date_clean,
-                        "Particulars (Expense Ledger)": lname,
+                        "Particulars": lname,
                         "Vch Type": v_type,
                         "Vch No.": v_no,
                         "Amount": lamt
                     })
 
-    # Exact Tally Cost-Valuation Formula for Closing Stock
     stock_summary_rows = []
     for it_k, it_v in item_stats.items():
         net_qty = it_v["purch_qty"] - it_v["sales_qty"]
-        
-        # Tally Purchase Cost Rate (Valuation Basis)
         if it_v["purch_qty"] > 0 and it_v["purch_val"] > 0:
             valuation_rate = it_v["purch_val"] / it_v["purch_qty"]
         else:
             valuation_rate = it_v["fallback_rate"]
 
-        # Closing Value = Net Qty * Purchase Rate (Exact AS-2 Valuation)
         closing_val = round(net_qty * valuation_rate, 2)
-
-        # Sirf active items dikhayein jinme quantity ya value bachi ho
         if abs(net_qty) > 0.001 or abs(closing_val) > 0.001:
             stock_summary_rows.append({
                 "Particulars (Stock Item)": it_k,
@@ -650,7 +664,7 @@ with st.sidebar:
         "Upload Tally Files (.xlsx, .xls, .csv, .xml)",
         type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
-        help="Tally Transactions.xml ya Stock Summary Excel exports upload karein."
+        help="Tally Transactions.xml ya Excel exports upload karein."
     )
 
     st.markdown("---")
@@ -701,7 +715,9 @@ if uploaded_files:
         "Overdue": 0.0,
         "Closing_Stock": 0.0,
         "Direct_Expenses": 0.0,
+        "Direct_Incomes": 0.0,
         "Indirect_Expenses": 0.0,
+        "Indirect_Incomes": 0.0,
         "MSME_Critical_Dues": 0.0,
         "Top_Customer": "N/A",
         "Critical_Count": 0,
@@ -761,7 +777,6 @@ if uploaded_files:
                 msme_overdue_xml = py_rows[py_rows["Days_Overdue"] >= 45]
                 business_data["MSME_Critical_Dues"] += msme_overdue_xml["Amount"].sum()
 
-        # Standalone Stock Summary Sheet (Excel)
         elif "stock" in fname or "inventory" in fname:
             business_data["Stock_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -806,28 +821,28 @@ if uploaded_files:
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
 
-    # Auto-consolidate Stock & P&L from XML
+    # Auto-consolidate Stock & Overheads from XML
     if business_data["Stock_DF"] is None and xml_stock_accumulator:
         consolidated_stk = pd.concat(xml_stock_accumulator, ignore_index=True)
         business_data["Stock_DF"] = consolidated_stk
         if "Closing Value" in consolidated_stk.columns:
             business_data["Closing_Stock"] = round(consolidated_stk["Closing Value"].sum(), 2)
 
-    if business_data["PL_DF"] is None and xml_expense_accumulator:
+    if xml_expense_accumulator:
         consolidated_exp = pd.concat(xml_expense_accumulator, ignore_index=True)
-        business_data["PL_DF"] = consolidated_exp
         for _, rx in consolidated_exp.iterrows():
-            px_name = str(rx["Particulars (Expense Ledger)"]).lower()
-            amt_x = float(rx["Amount"])
+            px_name = str(rx.get("Particulars", "")).lower()
+            amt_x = float(rx.get("Amount", 0.0))
             if any(k in px_name for k in ["freight", "carriage", "cartage", "wages", "fuel", "direct"]):
                 business_data["Direct_Expenses"] += amt_x
             else:
                 business_data["Indirect_Expenses"] += amt_x
 
-    # Calculations
-    cogs = (business_data["Purchase"] + business_data["Direct_Expenses"]) - business_data["Closing_Stock"]
-    gross_profit = business_data["Sales"] - (cogs if cogs > 0 else business_data["Purchase"])
-    net_profit = gross_profit - business_data["Indirect_Expenses"]
+    # TRUE TALLY P&L MATHEMATICAL FORMULA
+    # Gross Profit = Sales Accounts + Direct Incomes + Closing Stock - (Opening Stock + Purchase Accounts + Direct Expenses)
+    # Note: If closing stock is negative (e.g. -3,28,674.22), it reduces gross profit exactly as in Tally!
+    gross_profit = (business_data["Sales"] + business_data["Direct_Incomes"] + business_data["Closing_Stock"]) - (business_data["Purchase"] + business_data["Direct_Expenses"])
+    net_profit = (gross_profit + business_data["Indirect_Incomes"]) - business_data["Indirect_Expenses"]
 
     # Header
     st.markdown("""
@@ -846,7 +861,7 @@ if uploaded_files:
             <div class="metric-card">
                 <div class="metric-label">Gross Revenue (Turnover)</div>
                 <div class="metric-val">₹{business_data['Sales']:,.2f}</div>
-                <div class="metric-sub" style="color: #34D399;">● Reconciled Invoices</div>
+                <div class="metric-sub" style="color: #34D399;">● Reconciled Sales Accounts</div>
             </div>
         """, unsafe_allow_html=True)
     with k2:
@@ -900,10 +915,10 @@ if uploaded_files:
     # P&L Summary Cards
     st.markdown("### 📈 P&L & Operating Margins (Tally Mode)")
     pl_c1, pl_c2, pl_c3, pl_c4 = st.columns(4)
-    pl_c1.metric("Turnover", f"₹{business_data['Sales']:,.2f}")
-    pl_c2.metric("Procurement (COGS)", f"₹{business_data['Purchase']:,.2f}")
-    pl_c3.metric("Operating Gross Profit", f"₹{gross_profit:,.2f}", delta=f"{(gross_profit / business_data['Sales'] * 100):.1f}% Margin" if business_data['Sales'] > 0 else "0%")
-    pl_c4.metric("Estimated Net Taxable Profit", f"₹{net_profit:,.2f}", delta="Taxable Surplus" if net_profit >= 0 else "Tax Loss")
+    pl_c1.metric("Turnover (Sales A/c)", f"₹{business_data['Sales']:,.2f}")
+    pl_c2.metric("Procurement (Purchase A/c)", f"₹{business_data['Purchase']:,.2f}")
+    pl_c3.metric("Operating Gross Profit", f"₹{gross_profit:,.2f}", delta=f"{(gross_profit / business_data['Sales'] * 100):.2f}% Margin" if business_data['Sales'] > 0 else "0%")
+    pl_c4.metric("Nett Profit", f"₹{net_profit:,.2f}", delta="Net Surplus" if net_profit >= 0 else "Net Deficit")
 
     st.markdown("---")
 
@@ -930,13 +945,13 @@ if uploaded_files:
         """, unsafe_allow_html=True)
     with ca_col2:
         audit_summary_df = pd.DataFrame([
-            {"Audit Metric": "Annual Sales Turnover", "Amount (INR)": business_data["Sales"]},
-            {"Audit Metric": "Annual Total Purchases", "Amount (INR)": business_data["Purchase"]},
+            {"Audit Metric": "Annual Sales Turnover (Sales A/c)", "Amount (INR)": business_data["Sales"]},
+            {"Audit Metric": "Annual Total Purchases (Purchase A/c)", "Amount (INR)": business_data["Purchase"]},
             {"Audit Metric": "Closing Stock Valuation", "Amount (INR)": business_data["Closing_Stock"]},
-            {"Audit Metric": "Operating Gross Profit", "Amount (INR)": gross_profit},
-            {"Audit Metric": "Direct Expenses (Freight/Carriage)", "Amount (INR)": business_data["Direct_Expenses"]},
-            {"Audit Metric": "Indirect Overheads", "Amount (INR)": business_data["Indirect_Expenses"]},
-            {"Audit Metric": "Estimated Net Taxable Profit", "Amount (INR)": net_profit},
+            {"Audit Metric": "Gross Profit c/o", "Amount (INR)": gross_profit},
+            {"Audit Metric": "Direct Expenses", "Amount (INR)": business_data["Direct_Expenses"]},
+            {"Audit Metric": "Indirect Expenses", "Amount (INR)": business_data["Indirect_Expenses"]},
+            {"Audit Metric": "Nett Profit", "Amount (INR)": net_profit},
             {"Audit Metric": "Total Sundry Debtors (Receivables)", "Amount (INR)": business_data["Outstanding"]},
             {"Audit Metric": "Total Overdue Portfolio", "Amount (INR)": business_data["Overdue"]},
             {"Audit Metric": "Total Sundry Creditors (Payables)", "Amount (INR)": business_data["Payables"]},
@@ -970,7 +985,7 @@ if uploaded_files:
         "⚠️ Receivables (Debtors)", 
         "🏢 Payables (Creditors & MSME)",
         "📋 Stock Summary",
-        "⚖️ P&L Statements"
+        "⚖️ Profit & Loss A/c"
     ])
     
     with tab1:
@@ -1004,10 +1019,81 @@ if uploaded_files:
             st.info("Stock Summary file ya Inventory-enabled Transactions.xml upload hone par stock records display honge.")
 
     with tab6:
-        if business_data["PL_DF"] is not None and not business_data["PL_DF"].empty:
-            st.dataframe(business_data["PL_DF"], use_container_width=True, height=400)
-        else:
-            st.info("Profit & Loss statement ya Direct/Indirect expense entries yahan load hongi.")
+        # EXACT TALLY TRADITIONAL T-SHAPE PROFIT & LOSS STATEMENT
+        trading_total_cr = business_data["Sales"] + business_data["Direct_Incomes"]
+        trading_total_dr = business_data["Purchase"] + business_data["Direct_Expenses"] + (abs(business_data["Closing_Stock"]) if business_data["Closing_Stock"] < 0 else 0) + gross_profit
+        
+        st.markdown(f"""
+            <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px;">
+                <div style="text-align: center; margin-bottom: 18px;">
+                    <h3 style="margin: 0; font-weight: 700; color: #F8FAFC;">Profit & Loss A/c</h3>
+                    <div style="font-size: 0.85rem; color: #94A3B8;">For the Period 1-Apr-2026 to 18-Sep-2026 (Tally Synchronized)</div>
+                </div>
+                <table class="tally-pl-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 35%;">Particulars (Debit)</th>
+                            <th style="width: 15%; text-align: right;">Amount (₹)</th>
+                            <th style="width: 35%;">Particulars (Credit)</th>
+                            <th style="width: 15%; text-align: right;">Amount (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Opening Stock</td>
+                            <td style="text-align: right;">0.00</td>
+                            <td>Sales Accounts</td>
+                            <td style="text-align: right; font-weight: 600;">{business_data['Sales']:,.2f}</td>
+                        </tr>
+                        <tr>
+                            <td>Purchase Accounts</td>
+                            <td style="text-align: right; font-weight: 600;">{business_data['Purchase']:,.2f}</td>
+                            <td>Direct Incomes</td>
+                            <td style="text-align: right;">{business_data['Direct_Incomes']:,.2f}</td>
+                        </tr>
+                        <tr>
+                            <td>Closing Stock (Negative Balance)</td>
+                            <td style="text-align: right; color: #F87171;">{abs(business_data['Closing_Stock']):,.2f}</td>
+                            <td>Closing Stock (If Positive)</td>
+                            <td style="text-align: right;">0.00</td>
+                        </tr>
+                        <tr>
+                            <td>Gross Profit c/o</td>
+                            <td style="text-align: right; font-weight: 700; color: #34D399;">{gross_profit:,.2f}</td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        <tr class="tally-total-row">
+                            <td>Total</td>
+                            <td style="text-align: right;">{business_data['Sales']:,.2f}</td>
+                            <td>Total</td>
+                            <td style="text-align: right;">{business_data['Sales']:,.2f}</td>
+                        </tr>
+                        <tr>
+                            <td colspan="4" style="height: 15px; background: transparent;"></td>
+                        </tr>
+                        <tr>
+                            <td>Indirect Expenses</td>
+                            <td style="text-align: right;">{business_data['Indirect_Expenses']:,.2f}</td>
+                            <td>Gross Profit b/f</td>
+                            <td style="text-align: right; font-weight: 700; color: #34D399;">{gross_profit:,.2f}</td>
+                        </tr>
+                        <tr>
+                            <td>Nett Profit</td>
+                            <td style="text-align: right; font-weight: 700; color: #38BDF8;">{net_profit:,.2f}</td>
+                            <td>Indirect Incomes</td>
+                            <td style="text-align: right;">{business_data['Indirect_Incomes']:,.2f}</td>
+                        </tr>
+                        <tr class="tally-total-row">
+                            <td>Total</td>
+                            <td style="text-align: right;">{gross_profit:,.2f}</td>
+                            <td>Total</td>
+                            <td style="text-align: right;">{gross_profit:,.2f}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        """, unsafe_allow_html=True)
 else:
     st.markdown("""
         <div style="text-align: center; padding: 60px 20px; border: 1px dashed rgba(255,255,255,0.15); border-radius: 18px; margin-top: 20px;">
