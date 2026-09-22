@@ -158,53 +158,60 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- TALLY DATA PARSER ENGINE (EXCEL + XML) -----------------
-def parse_tally_xml(uploaded_file):
+# ----------------- STREAMING XML PARSER FOR LARGE 20MB+ FILES -----------------
+def parse_large_tally_xml(uploaded_file):
+    uploaded_file.seek(0)
+    vouchers = []
+    
     try:
-        uploaded_file.seek(0)
-        tree = ET.parse(uploaded_file)
-        root = tree.getroot()
+        # iterparse memory clear feature
+        context = ET.iterparse(uploaded_file, events=('end',))
         
-        vouchers = []
-        for vch in root.iter("VOUCHER"):
-            v_type = vch.findtext("VOUCHERTYPENAME", "")
-            v_date = vch.findtext("DATE", "")
-            v_no = vch.findtext("VOUCHERNUMBER", "")
-            p_name = vch.findtext("PARTYLEDGERNAME", "")
-            
-            # Extract total amount from ledgers
-            amt = 0.0
-            for led in vch.iter("ALLLEDGERENTRIES.LIST"):
-                try:
-                    val = float(led.findtext("AMOUNT", "0"))
-                    if abs(val) > amt:
-                        amt = abs(val)
-                except ValueError:
-                    pass
-                    
-            if not p_name:
-                p_name = vch.findtext("PARTYNAME", "Unknown Party")
+        for event, elem in context:
+            tag_name = elem.tag.upper()
+            if tag_name == "VOUCHER":
+                v_type = elem.findtext("VOUCHERTYPENAME") or elem.attrib.get("VCHTYPE", "")
+                v_date = elem.findtext("DATE") or elem.findtext("EFFECTIVEDATE", "")
+                v_no = elem.findtext("VOUCHERNUMBER") or ""
+                p_name = elem.findtext("PARTYLEDGERNAME") or elem.findtext("PARTYNAME") or ""
                 
-            vouchers.append({
-                "Date": v_date,
-                "Vch Type": v_type,
-                "Vch No.": v_no,
-                "Party Name": p_name,
-                "Amount": amt,
-                "Days_Overdue": 0
-            })
-            
+                # Check all amount occurrences
+                amt = 0.0
+                for amt_elem in elem.iter():
+                    if amt_elem.tag.upper() in ["AMOUNT", "PAIDAMOUNT"]:
+                        try:
+                            val = abs(float(amt_elem.text.strip()))
+                            if val > amt:
+                                amt = val
+                        except Exception:
+                            pass
+                
+                if amt > 0:
+                    vouchers.append({
+                        "Date": v_date,
+                        "Vch Type": v_type,
+                        "Vch No.": v_no,
+                        "Party Name": p_name if p_name else "Sundry Party",
+                        "Amount": amt,
+                        "Days_Overdue": 0
+                    })
+                
+                # Free memory immediately
+                elem.clear()
+                
         if vouchers:
             return pd.DataFrame(vouchers)
-        return pd.DataFrame()
-    except Exception:
-        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"XML Parsing Error: {e}")
+        
+    return pd.DataFrame()
 
+# ----------------- TALLY DATA PARSER ENGINE -----------------
 def load_tally_file(uploaded_file):
     fname = uploaded_file.name.lower()
     
     if fname.endswith('.xml'):
-        return parse_tally_xml(uploaded_file)
+        return parse_large_tally_xml(uploaded_file)
         
     try:
         uploaded_file.seek(0)
@@ -281,7 +288,6 @@ def load_tally_file(uploaded_file):
     if "Days_Overdue" in df.columns:
         df["Days_Overdue"] = pd.to_numeric(df["Days_Overdue"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
 
-    # Filter explicit summary rows
     is_summary_row = df.astype(str).apply(lambda row: row.str.lower().str.contains('grand total|total:|closing balance|average', na=False)).any(axis=1)
     df = df[~is_summary_row]
 
@@ -290,7 +296,6 @@ def load_tally_file(uploaded_file):
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
         df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', 'total'])]
 
-    # Prevent triple-counting by validating invoice rows
     if "Vch No." in df.columns and "Date" in df.columns:
         valid_vch = df["Vch No."].notna() & (~df["Vch No."].astype(str).str.lower().isin(['none', 'nan', '', '0']))
         valid_date = df["Date"].notna() & (~df["Date"].astype(str).str.lower().isin(['none', 'nan', '', '0']))
@@ -496,7 +501,7 @@ with st.sidebar:
         "Upload Tally Files (.xlsx, .xls, .csv, .xml)",
         type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
-        help="Direct Tally XML export (DayBook.xml) ya Excel sheets drop karein."
+        help="Direct Tally XML export (Transactions.xml) ya Excel sheets drop karein."
     )
 
     st.markdown("---")
@@ -568,7 +573,7 @@ if uploaded_files:
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
-        # 1. DIRECT XML FILE MULTI-DISCOVERY
+        # 1. XML DIRECT MAPPING
         if fname.endswith('.xml'):
             s_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
             if not s_rows.empty:
@@ -599,7 +604,7 @@ if uploaded_files:
             if "Amount" in fdf.columns:
                 business_data["Closing_Stock"] += fdf["Amount"].sum()
 
-        # 3. BILLS PAYABLE (CREDITORS)
+        # 3. BILLS PAYABLE
         elif "payable" in fname or "creditor" in fname:
             business_data["Payables_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -609,13 +614,13 @@ if uploaded_files:
                 if "Amount" in msme_overdue.columns:
                     business_data["MSME_Critical_Dues"] += msme_overdue["Amount"].sum()
 
-        # 4. PURCHASE REGISTER EXCEL
+        # 4. PURCHASE REGISTER
         elif "purch" in fname or any("purch" in v for v in vch_types):
             business_data["Purchase_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Purchase"] += fdf["Amount"].sum()
 
-        # 5. SALES REGISTER EXCEL
+        # 5. SALES REGISTER
         elif "sale" in fname or any("sale" in v for v in vch_types) or "daybook" in fname:
             business_data["Sales_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -627,7 +632,7 @@ if uploaded_files:
                     if not top_c.empty:
                         business_data["Top_Customer"] = top_c.index[0]
 
-        # 6. BILLS RECEIVABLE (CUSTOMER OUTSTANDINGS)
+        # 6. BILLS RECEIVABLE (DEBTORS)
         elif "receivable" in fname or "bill" in fname or "outstand" in fname or "Days_Overdue" in fdf.columns:
             business_data["Receivables_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -639,7 +644,7 @@ if uploaded_files:
                 critical_df = fdf[fdf["Days_Overdue"] >= credit_days_threshold]
                 business_data["Critical_Count"] += len(critical_df)
 
-        # 7. PROFIT & LOSS EXCEL
+        # 7. PROFIT & LOSS
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
             if "Amount" in fdf.columns and "Party Name" in fdf.columns:
@@ -837,7 +842,7 @@ else:
             <div style="font-size: 2.8rem; margin-bottom: 10px;">📊</div>
             <h3 style="font-weight: 700;">No Financial Reports Loaded</h3>
             <p style="color: #94A3B8; max-width: 500px; margin: auto;">
-                Sidebar uploader me Tally reports (Excel, CSV ya direct XML Daybook export) drop karein.
+                Sidebar uploader me Tally reports (Excel, CSV ya direct 20MB+ XML Transactions export) drop karein.
             </p>
         </div>
     """, unsafe_allow_html=True)
