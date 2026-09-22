@@ -4,8 +4,9 @@ import datetime
 import sqlite3
 import hashlib
 import qrcode
+import re
 import xml.etree.ElementTree as ET
-from io import BytesIO
+from io import BytesIO, StringIO
 from urllib.parse import quote
 
 # ----------------- PAGE CONFIG -----------------
@@ -158,15 +159,32 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- STREAMING XML PARSER FOR LARGE 20MB+ FILES -----------------
-def parse_large_tally_xml(uploaded_file):
+# ----------------- TALLY XML SANITIZER & STREAMING PARSER -----------------
+def sanitize_and_parse_xml(uploaded_file):
     uploaded_file.seek(0)
-    vouchers = []
+    raw_bytes = uploaded_file.read()
     
+    # Try multiple decodings safely
     try:
-        # iterparse memory clear feature
-        context = ET.iterparse(uploaded_file, events=('end',))
-        
+        xml_text = raw_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        try:
+            xml_text = raw_bytes.decode('utf-16')
+        except UnicodeDecodeError:
+            xml_text = raw_bytes.decode('latin-1', errors='replace')
+
+    # Remove invalid XML character references (e.g. &#4;, &#x0;, etc.)
+    xml_text = re.sub(r'&#(?!(?:[0-9]{1,4}|x[0-9a-fA-F]{1,4});)[^;]+;', '', xml_text)
+    # Strip illegal low-ASCII control characters except newline, tab, carriage return
+    xml_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', xml_text)
+    # Sanitize naked ampersands
+    xml_text = re.sub(r'&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)', '&amp;', xml_text)
+
+    clean_file = StringIO(xml_text)
+    vouchers = []
+
+    try:
+        context = ET.iterparse(clean_file, events=('end',))
         for event, elem in context:
             tag_name = elem.tag.upper()
             if tag_name == "VOUCHER":
@@ -175,12 +193,11 @@ def parse_large_tally_xml(uploaded_file):
                 v_no = elem.findtext("VOUCHERNUMBER") or ""
                 p_name = elem.findtext("PARTYLEDGERNAME") or elem.findtext("PARTYNAME") or ""
                 
-                # Check all amount occurrences
                 amt = 0.0
                 for amt_elem in elem.iter():
                     if amt_elem.tag.upper() in ["AMOUNT", "PAIDAMOUNT"]:
                         try:
-                            val = abs(float(amt_elem.text.strip()))
+                            val = abs(float(str(amt_elem.text).strip()))
                             if val > amt:
                                 amt = val
                         except Exception:
@@ -191,27 +208,26 @@ def parse_large_tally_xml(uploaded_file):
                         "Date": v_date,
                         "Vch Type": v_type,
                         "Vch No.": v_no,
-                        "Party Name": p_name if p_name else "Sundry Party",
+                        "Party Name": p_name if p_name else "Sundry Ledger",
                         "Amount": amt,
                         "Days_Overdue": 0
                     })
                 
-                # Free memory immediately
                 elem.clear()
                 
         if vouchers:
             return pd.DataFrame(vouchers)
     except Exception as e:
-        st.error(f"XML Parsing Error: {e}")
-        
+        st.error(f"Sanitized XML Read Notice: {e}")
+
     return pd.DataFrame()
 
-# ----------------- TALLY DATA PARSER ENGINE -----------------
+# ----------------- TALLY MULTI-FILE PARSER ENGINE -----------------
 def load_tally_file(uploaded_file):
     fname = uploaded_file.name.lower()
     
     if fname.endswith('.xml'):
-        return parse_large_tally_xml(uploaded_file)
+        return sanitize_and_parse_xml(uploaded_file)
         
     try:
         uploaded_file.seek(0)
@@ -484,7 +500,6 @@ with st.sidebar:
     else:
         admin_mode = "Analytics Dashboard"
 
-    # Business Rules Slider
     st.markdown("#### ⚙️ Business Rules")
     credit_days_threshold = st.slider(
         "Standard Credit Period (Days)", 
@@ -501,7 +516,7 @@ with st.sidebar:
         "Upload Tally Files (.xlsx, .xls, .csv, .xml)",
         type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
-        help="Direct Tally XML export (Transactions.xml) ya Excel sheets drop karein."
+        help="Tally Transactions.xml ya Excel exports upload karein."
     )
 
     st.markdown("---")
@@ -573,7 +588,7 @@ if uploaded_files:
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
-        # 1. XML DIRECT MAPPING
+        # 1. XML DIRECT DISCOVERY
         if fname.endswith('.xml'):
             s_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
             if not s_rows.empty:
@@ -842,7 +857,7 @@ else:
             <div style="font-size: 2.8rem; margin-bottom: 10px;">📊</div>
             <h3 style="font-weight: 700;">No Financial Reports Loaded</h3>
             <p style="color: #94A3B8; max-width: 500px; margin: auto;">
-                Sidebar uploader me Tally reports (Excel, CSV ya direct 20MB+ XML Transactions export) drop karein.
+                Sidebar uploader me Tally reports (Excel, CSV ya direct XML Transactions export) drop karein.
             </p>
         </div>
     """, unsafe_allow_html=True)
