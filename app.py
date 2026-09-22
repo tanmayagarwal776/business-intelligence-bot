@@ -5,8 +5,7 @@ import sqlite3
 import hashlib
 import qrcode
 import re
-import xml.etree.ElementTree as ET
-from io import BytesIO, StringIO
+from io import BytesIO
 from urllib.parse import quote
 
 # ----------------- PAGE CONFIG -----------------
@@ -159,67 +158,63 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- TALLY XML SANITIZER & STREAMING PARSER -----------------
-def sanitize_and_parse_xml(uploaded_file):
+# ----------------- ROBUST DIRECT REGEX TALLY XML EXTRACTOR -----------------
+def extract_vouchers_from_xml_direct(uploaded_file):
     uploaded_file.seek(0)
-    raw_bytes = uploaded_file.read()
+    raw_content = uploaded_file.read()
     
-    # Try multiple decodings safely
-    try:
-        xml_text = raw_bytes.decode('utf-8')
-    except UnicodeDecodeError:
+    # Fast multi-encoding decode
+    for enc in ['utf-8', 'utf-16', 'latin-1', 'cp1252']:
         try:
-            xml_text = raw_bytes.decode('utf-16')
-        except UnicodeDecodeError:
-            xml_text = raw_bytes.decode('latin-1', errors='replace')
+            content_str = raw_content.decode(enc)
+            break
+        except Exception:
+            continue
+    else:
+        content_str = raw_content.decode('latin-1', errors='replace')
 
-    # Remove invalid XML character references (e.g. &#4;, &#x0;, etc.)
-    xml_text = re.sub(r'&#(?!(?:[0-9]{1,4}|x[0-9a-fA-F]{1,4});)[^;]+;', '', xml_text)
-    # Strip illegal low-ASCII control characters except newline, tab, carriage return
-    xml_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', xml_text)
-    # Sanitize naked ampersands
-    xml_text = re.sub(r'&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)', '&amp;', xml_text)
-
-    clean_file = StringIO(xml_text)
+    # Regex patterns for Tally XML structure
+    vch_blocks = re.findall(r'<VOUCHER\b[^>]*>(.*?)</VOUCHER>', content_str, re.DOTALL | re.IGNORECASE)
     vouchers = []
 
-    try:
-        context = ET.iterparse(clean_file, events=('end',))
-        for event, elem in context:
-            tag_name = elem.tag.upper()
-            if tag_name == "VOUCHER":
-                v_type = elem.findtext("VOUCHERTYPENAME") or elem.attrib.get("VCHTYPE", "")
-                v_date = elem.findtext("DATE") or elem.findtext("EFFECTIVEDATE", "")
-                v_no = elem.findtext("VOUCHERNUMBER") or ""
-                p_name = elem.findtext("PARTYLEDGERNAME") or elem.findtext("PARTYNAME") or ""
-                
-                amt = 0.0
-                for amt_elem in elem.iter():
-                    if amt_elem.tag.upper() in ["AMOUNT", "PAIDAMOUNT"]:
-                        try:
-                            val = abs(float(str(amt_elem.text).strip()))
-                            if val > amt:
-                                amt = val
-                        except Exception:
-                            pass
-                
-                if amt > 0:
-                    vouchers.append({
-                        "Date": v_date,
-                        "Vch Type": v_type,
-                        "Vch No.": v_no,
-                        "Party Name": p_name if p_name else "Sundry Ledger",
-                        "Amount": amt,
-                        "Days_Overdue": 0
-                    })
-                
-                elem.clear()
-                
-        if vouchers:
-            return pd.DataFrame(vouchers)
-    except Exception as e:
-        st.error(f"Sanitized XML Read Notice: {e}")
+    for block in vch_blocks:
+        v_type_m = re.search(r'<(?:VOUCHERTYPENAME|VCHTYPE)[^>]*>(.*?)</', block, re.IGNORECASE)
+        v_date_m = re.search(r'<(?:DATE|EFFECTIVEDATE)[^>]*>(.*?)</', block, re.IGNORECASE)
+        v_no_m = re.search(r'<VOUCHERNUMBER[^>]*>(.*?)</', block, re.IGNORECASE)
+        p_name_m = re.search(r'<(?:PARTYLEDGERNAME|PARTYNAME)[^>]*>(.*?)</', block, re.IGNORECASE)
+        
+        v_type = v_type_m.group(1).strip() if v_type_m else ""
+        v_date = v_date_m.group(1).strip() if v_date_m else ""
+        v_no = v_no_m.group(1).strip() if v_no_m else ""
+        p_name = p_name_m.group(1).strip() if p_name_m else "Sundry Party"
+        
+        # Clean entities
+        p_name = re.sub(r'&amp;', '&', p_name)
+        p_name = re.sub(r'&#[0-9xX]+;', '', p_name)
 
+        # Extract all amounts inside voucher
+        amt_matches = re.findall(r'<(?:AMOUNT|PAIDAMOUNT)[^>]*>\s*([+-]?\d+(?:\.\d+)?)\s*</', block, re.IGNORECASE)
+        max_amt = 0.0
+        for am in amt_matches:
+            try:
+                v = abs(float(am))
+                if v > max_amt:
+                    max_amt = v
+            except Exception:
+                continue
+                
+        if max_amt > 0:
+            vouchers.append({
+                "Date": v_date,
+                "Vch Type": v_type,
+                "Vch No.": v_no,
+                "Party Name": p_name,
+                "Amount": max_amt,
+                "Days_Overdue": 0
+            })
+
+    if vouchers:
+        return pd.DataFrame(vouchers)
     return pd.DataFrame()
 
 # ----------------- TALLY MULTI-FILE PARSER ENGINE -----------------
@@ -227,7 +222,7 @@ def load_tally_file(uploaded_file):
     fname = uploaded_file.name.lower()
     
     if fname.endswith('.xml'):
-        return sanitize_and_parse_xml(uploaded_file)
+        return extract_vouchers_from_xml_direct(uploaded_file)
         
     try:
         uploaded_file.seek(0)
