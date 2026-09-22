@@ -285,7 +285,8 @@ if uploaded_files:
         "Top_Customer": "N/A",
         "Critical_60_Count": 0,
         "Receivables_DF": None,
-        "Sales_DF": None
+        "Sales_DF": None,
+        "Purchase_DF": None
     }
 
     for f in uploaded_files:
@@ -293,34 +294,40 @@ if uploaded_files:
         if fdf.empty:
             continue
 
-        text_corpus = " ".join([str(col).lower() for col in fdf.columns])
         fname = f.name.lower()
+        cols_lower = [str(c).lower() for c in fdf.columns]
+        text_corpus = " ".join(cols_lower)
 
-        # Receivables / Outstanding Check
-        if any("overdue" in c or "pending" in c for c in fdf.columns) or "Days_Overdue" in fdf.columns or "receivable" in fname or "bill" in fname:
+        # 1. SALES REGISTER / SALES FILE (Top Priority agar naam me 'sale' ho)
+        if "sale" in fname or ("sales" in text_corpus and "receivable" not in fname):
+            business_data["Sales_DF"] = fdf
+            if "Amount" in fdf.columns:
+                business_data["Sales"] += fdf["Amount"].sum()
+            if "Party Name" in fdf.columns and not fdf.empty:
+                valid_parties = fdf[~fdf["Party Name"].str.lower().isin(['total', '', 'nan', 'none'])]
+                if not valid_parties.empty and "Amount" in valid_parties.columns:
+                    top_c = valid_parties.groupby("Party Name")["Amount"].sum().sort_values(ascending=False)
+                    if not top_c.empty:
+                        business_data["Top_Customer"] = top_c.index[0]
+
+        # 2. PURCHASE REGISTER / PURCHASE FILE
+        elif "purch" in fname or "purchase" in text_corpus:
+            business_data["Purchase_DF"] = fdf
+            if "Amount" in fdf.columns:
+                business_data["Purchase"] += fdf["Amount"].sum()
+
+        # 3. BILLS RECEIVABLE / OUTSTANDING FILE
+        elif "receivable" in fname or "bill" in fname or "outstand" in fname or "overdue" in text_corpus:
             business_data["Receivables_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Outstanding"] += fdf["Amount"].sum()
+            
+            # Agar Tally ka original Days Overdue column hai:
             if "Days_Overdue" in fdf.columns:
                 overdue_rows = fdf[fdf["Days_Overdue"] > 0]
                 if "Amount" in overdue_rows.columns:
                     business_data["Overdue"] += overdue_rows["Amount"].sum()
                 business_data["Critical_60_Count"] += len(fdf[fdf["Days_Overdue"] >= 60])
-
-        # Sales Register / DayBook Check
-        elif "sale" in fname or "sale" in text_corpus or "daybook" in fname:
-            business_data["Sales_DF"] = fdf
-            if "Amount" in fdf.columns:
-                business_data["Sales"] += fdf["Amount"].sum()
-            if "Party Name" in fdf.columns and not fdf.empty:
-                top_c = fdf.groupby("Party Name")["Amount"].sum().sort_values(ascending=False)
-                if not top_c.empty:
-                    business_data["Top_Customer"] = top_c.index[0]
-
-        # Purchase Register Check
-        elif "purchase" in fname or "purchase" in text_corpus:
-            if "Amount" in fdf.columns:
-                business_data["Purchase"] += fdf["Amount"].sum()
 
     # Metrics Summary Row
     st.markdown("### 🚀 Executive Dashboard")
@@ -337,21 +344,21 @@ if uploaded_files:
         gross_diff = business_data["Sales"] - business_data["Purchase"]
         st.info(f"**Total Purchases:** ₹{business_data['Purchase']:,.2f} | **Cashflow Margin:** ₹{gross_diff:,.2f}")
     with col_b:
-        st.error(f"**Critical Overdue (60+ Days Risk):** {business_data['Critical_60_Count']} Parties Pending")
+        st.warning(f"**Critical Overdue (60+ Days Risk):** {business_data['Critical_60_Count']} Parties Pending")
 
-    st.markdown("### ⚠️ Collection & Ledger Breakdown")
-    tab1, tab2 = st.tabs(["Receivables & Overdue Records", "Sales Register Records"])
+    st.markdown("### 📋 Ledger & Analysis Breakdown")
+    tab1, tab2 = st.tabs(["Sales Register Records", "Receivables & Overdue Records"])
     
     with tab1:
-        if business_data["Receivables_DF"] is not None:
-            st.dataframe(business_data["Receivables_DF"], use_container_width=True)
-        else:
-            st.info("Bills Receivable upload karein taaki overdue aur risk analysis render ho sake.")
-            
-    with tab2:
         if business_data["Sales_DF"] is not None:
             st.dataframe(business_data["Sales_DF"], use_container_width=True)
         else:
-            st.info("Sales Register upload karein taaki transaction analysis render ho sake.")
+            st.info("Sales Register file upload hone par sales transactions yahan load honge.")
+            
+    with tab2:
+        if business_data["Receivables_DF"] is not None:
+            st.dataframe(business_data["Receivables_DF"], use_container_width=True)
+        else:
+            st.info("Bills Receivable file upload hone par overdue analysis yahan load hoga.")
 else:
     st.info("ℹ️ Kripya Tally ki reports (Sales Register, Bills Receivable, DayBook) sidebar se upload karein.")
