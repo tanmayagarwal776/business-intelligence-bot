@@ -4,6 +4,7 @@ import datetime
 import sqlite3
 import hashlib
 import qrcode
+import xml.etree.ElementTree as ET
 from io import BytesIO
 from urllib.parse import quote
 
@@ -157,11 +158,56 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- TALLY DATA PARSER ENGINE -----------------
-def load_tally_file(uploaded_file):
+# ----------------- TALLY DATA PARSER ENGINE (EXCEL + XML) -----------------
+def parse_tally_xml(uploaded_file):
     try:
         uploaded_file.seek(0)
-        fname = uploaded_file.name.lower()
+        tree = ET.parse(uploaded_file)
+        root = tree.getroot()
+        
+        vouchers = []
+        for vch in root.iter("VOUCHER"):
+            v_type = vch.findtext("VOUCHERTYPENAME", "")
+            v_date = vch.findtext("DATE", "")
+            v_no = vch.findtext("VOUCHERNUMBER", "")
+            p_name = vch.findtext("PARTYLEDGERNAME", "")
+            
+            # Extract total amount from ledgers
+            amt = 0.0
+            for led in vch.iter("ALLLEDGERENTRIES.LIST"):
+                try:
+                    val = float(led.findtext("AMOUNT", "0"))
+                    if abs(val) > amt:
+                        amt = abs(val)
+                except ValueError:
+                    pass
+                    
+            if not p_name:
+                p_name = vch.findtext("PARTYNAME", "Unknown Party")
+                
+            vouchers.append({
+                "Date": v_date,
+                "Vch Type": v_type,
+                "Vch No.": v_no,
+                "Party Name": p_name,
+                "Amount": amt,
+                "Days_Overdue": 0
+            })
+            
+        if vouchers:
+            return pd.DataFrame(vouchers)
+        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+def load_tally_file(uploaded_file):
+    fname = uploaded_file.name.lower()
+    
+    if fname.endswith('.xml'):
+        return parse_tally_xml(uploaded_file)
+        
+    try:
+        uploaded_file.seek(0)
         if fname.endswith('.csv'):
             raw_df = pd.read_csv(uploaded_file, header=None)
         elif fname.endswith('.xls'):
@@ -222,7 +268,6 @@ def load_tally_file(uploaded_file):
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
 
-    # Clean Numeric Columns
     amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
     for ac in amt_cols:
         df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
@@ -236,22 +281,19 @@ def load_tally_file(uploaded_file):
     if "Days_Overdue" in df.columns:
         df["Days_Overdue"] = pd.to_numeric(df["Days_Overdue"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
 
-    # 1. Strip explicit Grand Total text lines
+    # Filter explicit summary rows
     is_summary_row = df.astype(str).apply(lambda row: row.str.lower().str.contains('grand total|total:|closing balance|average', na=False)).any(axis=1)
     df = df[~is_summary_row]
 
-    # 2. Forward-Fill Party Name
     if "Party Name" in df.columns:
         df["Party Name"] = df["Party Name"].replace(['None', 'nan', '', None], pd.NA).ffill()
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
         df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', 'total'])]
 
-    # 3. TRIPLE-COUNTING ELIMINATOR FOR BILLS RECEIVABLE & PAYABLE:
-    # Valid voucher line item ke paas Vch No. ya Date hona anivarya hai
+    # Prevent triple-counting by validating invoice rows
     if "Vch No." in df.columns and "Date" in df.columns:
         valid_vch = df["Vch No."].notna() & (~df["Vch No."].astype(str).str.lower().isin(['none', 'nan', '', '0']))
         valid_date = df["Date"].notna() & (~df["Date"].astype(str).str.lower().isin(['none', 'nan', '', '0']))
-        # Sirf actual invoices ko rakhein (Sub-total blank rows drop)
         df = df[valid_vch | valid_date]
     elif "Date" in df.columns:
         df = df[df["Date"].notna() & (~df["Date"].astype(str).str.lower().isin(['none', 'nan', '']))]
@@ -437,7 +479,7 @@ with st.sidebar:
     else:
         admin_mode = "Analytics Dashboard"
 
-    # Business Rules
+    # Business Rules Slider
     st.markdown("#### ⚙️ Business Rules")
     credit_days_threshold = st.slider(
         "Standard Credit Period (Days)", 
@@ -445,16 +487,16 @@ with st.sidebar:
         max_value=180, 
         value=65, 
         step=5,
-        help="Allowed credit days set karein."
+        help="Allowed credit days set karein (Salt: 65 Days)."
     )
 
     st.markdown("---")
-    st.markdown("#### 📂 Tally Reports Import")
+    st.markdown("#### 📂 Tally Reports / Direct XML")
     uploaded_files = st.file_uploader(
-        "Upload Tally Exports (.xlsx, .xls, .csv)",
-        type=["xlsx", "xls", "csv"],
+        "Upload Tally Files (.xlsx, .xls, .csv, .xml)",
+        type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
-        help="Drop Sales, Purchase, Bills, Receivables, Payables, Stock ya P&L files."
+        help="Direct Tally XML export (DayBook.xml) ya Excel sheets drop karein."
     )
 
     st.markdown("---")
@@ -526,13 +568,38 @@ if uploaded_files:
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
-        # 1. STOCK SUMMARY
-        if "stock" in fname or "inventory" in fname:
+        # 1. DIRECT XML FILE MULTI-DISCOVERY
+        if fname.endswith('.xml'):
+            s_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
+            if not s_rows.empty:
+                business_data["Sales_DF"] = s_rows
+                business_data["Sales"] += s_rows["Amount"].sum()
+                top_c = s_rows.groupby("Party Name")["Amount"].sum().sort_values(ascending=False)
+                if not top_c.empty:
+                    business_data["Top_Customer"] = top_c.index[0]
+
+            p_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("purchase|purch", na=False)]
+            if not p_rows.empty:
+                business_data["Purchase_DF"] = p_rows
+                business_data["Purchase"] += p_rows["Amount"].sum()
+
+            r_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("receipt|receiv", na=False)]
+            if not r_rows.empty:
+                business_data["Receivables_DF"] = r_rows
+                business_data["Outstanding"] += r_rows["Amount"].sum()
+
+            py_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("payment|payab", na=False)]
+            if not py_rows.empty:
+                business_data["Payables_DF"] = py_rows
+                business_data["Payables"] += py_rows["Amount"].sum()
+
+        # 2. STOCK SUMMARY EXCEL
+        elif "stock" in fname or "inventory" in fname:
             business_data["Stock_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Closing_Stock"] += fdf["Amount"].sum()
 
-        # 2. BILLS PAYABLE (CREDITORS)
+        # 3. BILLS PAYABLE (CREDITORS)
         elif "payable" in fname or "creditor" in fname:
             business_data["Payables_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -542,13 +609,13 @@ if uploaded_files:
                 if "Amount" in msme_overdue.columns:
                     business_data["MSME_Critical_Dues"] += msme_overdue["Amount"].sum()
 
-        # 3. PURCHASE REGISTER
+        # 4. PURCHASE REGISTER EXCEL
         elif "purch" in fname or any("purch" in v for v in vch_types):
             business_data["Purchase_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Purchase"] += fdf["Amount"].sum()
 
-        # 4. SALES REGISTER / DAYBOOK
+        # 5. SALES REGISTER EXCEL
         elif "sale" in fname or any("sale" in v for v in vch_types) or "daybook" in fname:
             business_data["Sales_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -560,7 +627,7 @@ if uploaded_files:
                     if not top_c.empty:
                         business_data["Top_Customer"] = top_c.index[0]
 
-        # 5. BILLS RECEIVABLE (CUSTOMER OUTSTANDINGS)
+        # 6. BILLS RECEIVABLE (CUSTOMER OUTSTANDINGS)
         elif "receivable" in fname or "bill" in fname or "outstand" in fname or "Days_Overdue" in fdf.columns:
             business_data["Receivables_DF"] = fdf
             if "Amount" in fdf.columns:
@@ -572,7 +639,7 @@ if uploaded_files:
                 critical_df = fdf[fdf["Days_Overdue"] >= credit_days_threshold]
                 business_data["Critical_Count"] += len(critical_df)
 
-        # 6. PROFIT & LOSS / EXPENSES
+        # 7. PROFIT & LOSS EXCEL
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
             if "Amount" in fdf.columns and "Party Name" in fdf.columns:
@@ -584,7 +651,7 @@ if uploaded_files:
                     else:
                         business_data["Indirect_Expenses"] += amt
 
-    # Core Calculations
+    # Calculations
     cogs = (business_data["Purchase"] + business_data["Direct_Expenses"]) - business_data["Closing_Stock"]
     gross_profit = business_data["Sales"] - (cogs if cogs > 0 else business_data["Purchase"])
     net_profit = gross_profit - business_data["Indirect_Expenses"]
@@ -599,7 +666,7 @@ if uploaded_files:
         </div>
     """, unsafe_allow_html=True)
 
-    # 4 Core KPI Cards (Overdue Portfolio restored)
+    # 4 Core KPI Cards
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(f"""
@@ -770,7 +837,7 @@ else:
             <div style="font-size: 2.8rem; margin-bottom: 10px;">📊</div>
             <h3 style="font-weight: 700;">No Financial Reports Loaded</h3>
             <p style="color: #94A3B8; max-width: 500px; margin: auto;">
-                Sidebar uploader me Tally reports (Sales, Purchase, Bills, Payables, Stock Summary ya P&L) drop karein.
+                Sidebar uploader me Tally reports (Excel, CSV ya direct XML Daybook export) drop karein.
             </p>
         </div>
     """, unsafe_allow_html=True)
