@@ -18,29 +18,52 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ----------------- MODERN CSS + HIDE STREAMLIT BRANDING & GITHUB -----------------
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    .stApp {
-        background: radial-gradient(circle at 10% 20%, rgba(14, 23, 42, 0.95) 0%, rgba(15, 23, 42, 1) 90%);
-    }
+# ----------------- SESSION STATE SETUP -----------------
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+    st.session_state["username"] = ""
+    st.session_state["phone"] = ""
+    st.session_state["role"] = ""
+    st.session_state["status"] = ""
+    st.session_state["plan"] = ""
+    st.session_state["created_at"] = ""
+    st.session_state["otp_sent"] = False
+    st.session_state["generated_otp"] = ""
+    st.session_state["temp_user"] = None
+    st.session_state["sms_mode"] = ""
 
-    /* PERMANENTLY HIDE GITHUB ICON, MANAGE APP & STREAMLIT WATERMARKS */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .viewerBadge_container__1QSob {display: none !important;}
-    .viewerBadge_link__1S137 {display: none !important;}
-    [data-testid="stToolbar"] {display: none !important;}
-    [data-testid="manage-app-button"] {display: none !important;}
-    div[class*="ProfileBadge"] {display: none !important;}
+# ----------------- ROLE-BASED DYNAMIC CSS (ADMIN VISIBILITY VS CLIENT PRIVACY) -----------------
+is_admin_active = st.session_state.get("logged_in") and st.session_state.get("role") == "admin"
 
+if is_admin_active:
+    # Admin ke liye Toolbar aur Manage App visible rahega
+    custom_css = """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+        .stApp { background: radial-gradient(circle at 10% 20%, rgba(14, 23, 42, 0.95) 0%, rgba(15, 23, 42, 1) 90%); }
+        header { visibility: visible !important; }
+        [data-testid="manage-app-button"] { display: block !important; }
+        [data-testid="stToolbar"] { display: block !important; }
+    """
+else:
+    # Client aur Public ke liye GitHub aur Manage App permanently hidden rahenge
+    custom_css = """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+        .stApp { background: radial-gradient(circle at 10% 20%, rgba(14, 23, 42, 0.95) 0%, rgba(15, 23, 42, 1) 90%); }
+        #MainMenu { visibility: hidden !important; }
+        footer { visibility: hidden !important; }
+        header { visibility: hidden !important; }
+        .viewerBadge_container__1QSob { display: none !important; }
+        .viewerBadge_link__1S137 { display: none !important; }
+        [data-testid="stToolbar"] { display: none !important; }
+        [data-testid="manage-app-button"] { display: none !important; }
+        div[class*="ProfileBadge"] { display: none !important; }
+    """
+
+custom_css += """
     .metric-card {
         background: rgba(30, 41, 59, 0.7);
         backdrop-filter: blur(12px);
@@ -73,7 +96,6 @@ st.markdown("""
         margin-top: 6px;
         font-weight: 500;
     }
-
     .info-card {
         background: rgba(30, 41, 59, 0.5);
         border: 1px solid rgba(255, 255, 255, 0.06);
@@ -81,7 +103,6 @@ st.markdown("""
         padding: 18px 22px;
         margin-bottom: 15px;
     }
-
     .support-box {
         background: rgba(15, 23, 42, 0.6);
         border: 1px dashed rgba(99, 102, 241, 0.35);
@@ -90,12 +111,10 @@ st.markdown("""
         margin-top: 15px;
         text-align: center;
     }
-
     section[data-testid="stSidebar"] {
         background-color: #0B1120;
         border-right: 1px solid rgba(255, 255, 255, 0.06);
     }
-
     .badge-tag {
         display: inline-block;
         padding: 4px 10px;
@@ -107,7 +126,6 @@ st.markdown("""
     .badge-primary { background: rgba(99, 102, 241, 0.2); color: #818CF8; border: 1px solid rgba(99, 102, 241, 0.3); }
     .badge-danger { background: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.25); }
     .badge-success { background: rgba(34, 197, 94, 0.15); color: #4ADE80; border: 1px solid rgba(34, 197, 94, 0.25); }
-    
     .tally-pl-table {
         width: 100%;
         border-collapse: collapse;
@@ -131,10 +149,10 @@ st.markdown("""
         background: rgba(15, 23, 42, 0.5);
     }
     </style>
-""", unsafe_allow_html=True)
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
 
 # ----------------- FAST2SMS GATEWAY INTEGRATION -----------------
-# Yahan apni Fast2SMS API key paste karein agar direct SIM par bhejna ho
 FAST2SMS_API_KEY = ""
 
 def send_real_mobile_otp(phone_number, otp_code):
@@ -476,20 +494,6 @@ def load_tally_file(uploaded_file):
     df = df.reset_index(drop=True)
     return df, pd.DataFrame(), pd.DataFrame()
 
-# ----------------- SESSION STATE -----------------
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-    st.session_state["username"] = ""
-    st.session_state["phone"] = ""
-    st.session_state["role"] = ""
-    st.session_state["status"] = ""
-    st.session_state["plan"] = ""
-    st.session_state["created_at"] = ""
-    st.session_state["otp_sent"] = False
-    st.session_state["generated_otp"] = ""
-    st.session_state["temp_user"] = None
-    st.session_state["sms_mode"] = ""
-
 def generate_upi_qr(vpa, name, amount):
     upi_url = f"upi://pay?pa={vpa}&pn={quote(name)}&am={amount}&cu=INR"
     qr = qrcode.QRCode(version=1, box_size=5, border=2)
@@ -534,7 +538,7 @@ if not st.session_state["logged_in"]:
                                 "username": u, "phone": phone, "role": role, 
                                 "status": status, "plan": plan, "created_at": created_at
                             }
-                            # Send real SMS
+                            # Send real SMS via Gateway
                             sent, mode = send_real_mobile_otp(phone.strip(), otp)
                             st.session_state["sms_mode"] = mode
                             st.rerun()
@@ -546,7 +550,6 @@ if not st.session_state["logged_in"]:
                 if st.session_state.get("sms_mode") == "SMS_SENT":
                     st.success(f"📲 6-Digit OTP sent successfully to your mobile: +91 {phone[-10:]} via SMS!")
                 else:
-                    # In demo mode if SMS key is blank
                     st.info(f"📲 SMS Mode [Test Gateway]: OTP is **`{st.session_state['generated_otp']}`**")
 
                 entered_otp = st.text_input("Enter 6-Digit OTP Received", placeholder="••••••")
