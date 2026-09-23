@@ -6,7 +6,6 @@ import hashlib
 import random
 import qrcode
 import re
-import requests
 from io import BytesIO
 from urllib.parse import quote
 
@@ -42,7 +41,6 @@ if is_admin_active:
         </style>
     """, unsafe_allow_html=True)
 else:
-    # Client ke liye CSS + JavaScript dono se permanently block
     st.markdown("""
         <style>
         #MainMenu, footer, header { visibility: hidden !important; display: none !important; }
@@ -139,6 +137,20 @@ st.markdown("""
     .badge-primary { background: rgba(99, 102, 241, 0.2); color: #818CF8; border: 1px solid rgba(99, 102, 241, 0.3); }
     .badge-danger { background: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.25); }
     .badge-success { background: rgba(34, 197, 94, 0.15); color: #4ADE80; border: 1px solid rgba(34, 197, 94, 0.25); }
+    .whatsapp-btn {
+        display: block;
+        background: #25D366;
+        color: #FFFFFF !important;
+        text-align: center;
+        padding: 12px;
+        border-radius: 10px;
+        font-weight: 700;
+        font-size: 1rem;
+        text-decoration: none;
+        margin-top: 12px;
+        margin-bottom: 15px;
+        box-shadow: 0 4px 14px rgba(37, 211, 102, 0.3);
+    }
     .tally-pl-table {
         width: 100%;
         border-collapse: collapse;
@@ -164,30 +176,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ----------------- REAL MOBILE SMS GATEWAY -----------------
-# Yahan apni Fast2SMS API Key paste karein taaki SMS delivery active ho sake:
-FAST2SMS_API_KEY = ""
-
-def send_real_mobile_sms(phone_number, otp_code):
-    if not FAST2SMS_API_KEY:
-        return False, "KEY_MISSING"
-    try:
-        url = "https://www.fast2sms.com/dev/bulkV2"
-        headers = {'authorization': FAST2SMS_API_KEY.strip()}
-        payload = {
-            'variables_values': str(otp_code),
-            'route': 'otp',
-            'numbers': str(phone_number)[-10:]
-        }
-        res = requests.post(url, data=payload, headers=headers, timeout=8)
-        json_data = res.json()
-        if json_data.get('return'):
-            return True, "SMS_SENT"
-        else:
-            return False, str(json_data.get('message'))
-    except Exception as e:
-        return False, str(e)
-
 # ----------------- DATABASE INITIALIZATION -----------------
 def init_db():
     conn = sqlite3.connect("tally_users_v3.db", check_same_thread=False)
@@ -209,6 +197,19 @@ def init_db():
     return conn
 
 conn = init_db()
+
+def migrate_db_schema():
+    c = conn.cursor()
+    c.execute("PRAGMA table_info(users)")
+    cols = [r[1] for r in c.fetchall()]
+    if "phone" not in cols:
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''")
+            conn.commit()
+        except Exception:
+            pass
+
+migrate_db_schema()
 
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -504,11 +505,11 @@ def generate_upi_qr(vpa, name, amount):
     img.save(buf)
     return buf.getvalue()
 
-# ----------------- AUTHENTICATION -----------------
+# ----------------- AUTHENTICATION WITH WHATSAPP OTP -----------------
 if not st.session_state["logged_in"]:
     st.markdown("""
         <div style="text-align: center; margin-top: 40px; margin-bottom: 25px;">
-            <div class="badge-tag badge-primary">2-FACTOR SECURE ENTERPRISE SUITE</div>
+            <div class="badge-tag badge-primary">WHATSAPP SECURE ENTERPRISE SUITE</div>
             <h1 style="font-weight: 800; font-size: 2.6rem; letter-spacing: -0.02em; margin-bottom: 8px;">Tally Executive Suite</h1>
             <p style="color: #94A3B8; font-size: 1.05rem;">Turn raw Tally exports into executive P&L, stock intelligence & CA dossiers</p>
         </div>
@@ -526,7 +527,7 @@ if not st.session_state["logged_in"]:
             phone = st.text_input("Registered 10-Digit Mobile No.", placeholder="e.g. 9876543210")
 
             if not st.session_state["otp_sent"]:
-                if st.button("Generate & Send Mobile OTP", use_container_width=True, type="primary"):
+                if st.button("Generate Login OTP via WhatsApp", use_container_width=True, type="primary"):
                     if u and p and phone and len(phone.strip()) >= 10:
                         res = verify_user_creds(u, p)
                         if res:
@@ -537,21 +538,27 @@ if not st.session_state["logged_in"]:
                                 "username": u, "phone": phone, "role": role, 
                                 "status": status, "plan": plan, "created_at": created_at
                             }
-                            
-                            sent, status_msg = send_real_mobile_sms(phone.strip(), otp)
-                            if sent or status_msg == "KEY_MISSING":
-                                st.session_state["otp_sent"] = True
-                                st.rerun()
-                            else:
-                                st.error(f"Failed to send SMS to {phone}: {status_msg}")
+                            st.session_state["otp_sent"] = True
+                            st.rerun()
                         else:
                             st.error("Invalid username or password.")
                     else:
                         st.error("Please provide valid username, password and 10-digit phone number.")
             else:
-                st.success(f"📲 Verification Code sent to mobile: +91 {phone[-10:]}. Please check your SMS inbox.")
+                target_phone = phone.strip()[-10:]
+                msg_body = quote(f"Hello, your Tally Executive Suite Login OTP is: {st.session_state['generated_otp']}. Valid for 10 minutes.")
+                wa_link = f"https://api.whatsapp.com/send?phone=91{target_phone}&text={msg_body}"
 
-                entered_otp = st.text_input("Enter 6-Digit OTP Received via SMS", placeholder="••••••")
+                st.markdown(f"""
+                    <a href="{wa_link}" target="_blank" class="whatsapp-btn">
+                        💬 Click Here: Send OTP to My WhatsApp (+91 {target_phone})
+                    </a>
+                """, unsafe_allow_html=True)
+
+                with st.expander("👁️ Cannot access WhatsApp? Click to view OTP"):
+                    st.info(f"Verification OTP: **`{st.session_state['generated_otp']}`**")
+
+                entered_otp = st.text_input("Enter 6-Digit Verification OTP", placeholder="••••••")
                 col_sub1, col_sub2 = st.columns(2)
                 with col_sub1:
                     if st.button("Verify OTP & Login", use_container_width=True, type="primary"):
@@ -578,7 +585,7 @@ if not st.session_state["logged_in"]:
                             st.session_state["otp_sent"] = False
                             st.rerun()
                         else:
-                            st.error("Incorrect OTP entered. Please check SMS.")
+                            st.error("Incorrect OTP entered.")
                 with col_sub2:
                     if st.button("Resend / Reset", use_container_width=True):
                         st.session_state["otp_sent"] = False
@@ -596,9 +603,9 @@ if not st.session_state["logged_in"]:
             st.markdown("<div class='info-card'>", unsafe_allow_html=True)
             new_u = st.text_input("Choose Username", placeholder="e.g. industrial_trade")
             new_p = st.text_input("Choose Password", type="password", placeholder="••••••••")
-            new_phone = st.text_input("Mobile Number (For SMS OTP)", placeholder="10-digit mobile number")
+            new_phone = st.text_input("Mobile Number (WhatsApp Enabled)", placeholder="10-digit mobile number")
             
-            st.caption("🔒 7-day full access included. Verified Mobile Security.")
+            st.caption("🔒 7-day full access included. Instant WhatsApp Verification.")
             if st.button("Register & Activate Trial", use_container_width=True, type="primary"):
                 if new_u and new_p and new_phone and len(new_phone.strip()) >= 10:
                     c = conn.cursor()
@@ -612,7 +619,7 @@ if not st.session_state["logged_in"]:
                             st.error(f"🚫 Workstation Trial Exists (`{prev_acc[0]}`). Please log in with existing account.")
                         else:
                             add_user(new_u, new_p, new_phone.strip(), role="client", status="trial", plan="Free Trial (7 Days)", device_hash=dev_hash, txn_id="FREE_TRIAL")
-                            st.success("🎉 Account activated! Switch to 'Sign In' to login via OTP.")
+                            st.success("🎉 Account activated! Switch to 'Sign In' to login via WhatsApp OTP.")
                 else:
                     st.error("Please fill all fields including 10-digit mobile number.")
             st.markdown("</div>", unsafe_allow_html=True)
