@@ -240,7 +240,6 @@ def extract_all_from_xml(uploaded_file):
             except Exception:
                 pass
 
-        # Total voucher amount
         amt_matches = re.findall(r'<(?:AMOUNT|PAIDAMOUNT)[^>]*>\s*([+-]?\d+(?:\.\d+)?)\s*</', block, re.IGNORECASE)
         max_amt = 0.0
         for am in amt_matches:
@@ -261,7 +260,6 @@ def extract_all_from_xml(uploaded_file):
                 "Days_Overdue": days_old
             })
 
-        # Inventory Items Extract
         is_purchase = any(x in v_type.lower() for x in ["purchase", "receipt note"])
         is_sale = any(x in v_type.lower() for x in ["sale", "delivery note"])
 
@@ -307,7 +305,6 @@ def extract_all_from_xml(uploaded_file):
                     item_stats[it_name]["purch_qty"] += num_qty
                     item_stats[it_name]["purch_val"] += it_amt
 
-        # Overheads and Expenses for P&L
         led_blocks = re.findall(r'<ALLLEDGERENTRIES\.LIST\b[^>]*>(.*?)</ALLLEDGERENTRIES\.LIST>', block, re.DOTALL | re.IGNORECASE)
         for lb in led_blocks:
             led_name_m = re.search(r'<LEDGERNAME[^>]*>(.*?)</', lb, re.IGNORECASE)
@@ -644,7 +641,7 @@ with st.sidebar:
     st.markdown("---")
 
     if st.session_state["role"] == "admin":
-        admin_mode = st.radio("Console Navigation", ["Analytics Dashboard", "License Approvals"])
+        admin_mode = st.radio("Console Navigation", ["Analytics Dashboard", "User Management & CRM", "License Approvals"])
     else:
         admin_mode = "Analytics Dashboard"
 
@@ -664,7 +661,7 @@ with st.sidebar:
         "Upload Tally Files (.xlsx, .xls, .csv, .xml)",
         type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
-        help="Tally Transactions.xml ya Excel exports upload karein."
+        help="Tally Transactions.xml ya Stock Summary Excel exports upload karein."
     )
 
     st.markdown("---")
@@ -679,7 +676,103 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
 
-# ----------------- ADMIN APPROVAL INTERFACE -----------------
+# ----------------- ADMIN: USER CRM & SUBSCRIPTION MANAGER (NEW FEATURE) -----------------
+if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM":
+    st.markdown("""
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div>
+                <h2 style="font-weight: 800; margin: 0;">👥 User Directory & Subscription CRM</h2>
+                <p style="color: #94A3B8; margin-top: 4px;">Live customer tracking, Free Trial status & manual subscription override</p>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    c = conn.cursor()
+    all_users = c.execute("SELECT username, phone, role, status, plan, created_at, txn_id FROM users").fetchall()
+
+    total_u = len(all_users)
+    trial_u = sum(1 for x in all_users if x[3] == "trial")
+    paid_u = sum(1 for x in all_users if x[3] == "approved")
+    expired_u = sum(1 for x in all_users if x[3] in ["expired", "pending"])
+
+    crm1, crm2, crm3, crm4 = st.columns(4)
+    crm1.metric("Total Registered Users", total_u)
+    crm2.metric("Active Free Trials", trial_u)
+    crm3.metric("Paid Subscriptions", paid_u)
+    crm4.metric("Expired / Pending", expired_u)
+
+    st.markdown("---")
+    st.markdown("### 📋 Client Portfolio Master Table")
+
+    table_data = []
+    now_dt = datetime.datetime.now()
+
+    for u_name, u_ph, u_role, u_stat, u_pl, u_cr, u_tx in all_users:
+        days_rem = "-"
+        if u_stat == "trial":
+            try:
+                c_date = datetime.datetime.strptime(u_cr, "%Y-%m-%d %H:%M:%S")
+                days_left = max(0, 7 - (now_dt - c_date).days)
+                days_rem = f"{days_left} Days Left"
+            except Exception:
+                days_rem = "Active"
+        elif u_stat == "approved":
+            days_rem = "Unlimited / Paid"
+        elif u_stat == "expired":
+            days_rem = "0 Days (Expired)"
+        elif u_stat == "pending":
+            days_rem = "Pending Verification"
+
+        table_data.append({
+            "Username": u_name,
+            "Mobile No.": u_ph if u_ph else "-",
+            "Role": u_role,
+            "Status": u_stat.upper(),
+            "Plan Type": u_pl,
+            "Trial / License Balance": days_rem,
+            "Registration Date": u_cr,
+            "Last Transaction Ref": u_tx if u_tx else "N/A"
+        })
+
+    st.dataframe(pd.DataFrame(table_data), use_container_width=True, height=350)
+
+    st.markdown("---")
+    st.markdown("### 🛠️ Manual User Subscription Override")
+    
+    non_admin_usernames = [x[0] for x in all_users if x[0] != "tanmay_admin"]
+    if non_admin_usernames:
+        col_ov1, col_ov2, col_ov3 = st.columns([1.5, 1.5, 1])
+        with col_ov1:
+            target_user = st.selectbox("Select User Account:", non_admin_usernames)
+        with col_ov2:
+            new_status_action = st.selectbox("Set Access Status:", [
+                "Grant Annual Enterprise (Approve)",
+                "Grant Monthly License (Approve)",
+                "Reset 7-Day Free Trial",
+                "Expire / Lock Account"
+            ])
+        with col_ov3:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            if st.button("Apply Action", type="primary", use_container_width=True):
+                c = conn.cursor()
+                now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                if "Annual" in new_status_action:
+                    c.execute("UPDATE users SET status='approved', plan='Annual Enterprise (₹2,999)' WHERE username=?", (target_user,))
+                elif "Monthly" in new_status_action:
+                    c.execute("UPDATE users SET status='approved', plan='Monthly License (₹499)' WHERE username=?", (target_user,))
+                elif "Reset" in new_status_action:
+                    c.execute("UPDATE users SET status='trial', plan='Free Trial (7 Days)', created_at=? WHERE username=?", (now_str, target_user))
+                elif "Expire" in new_status_action:
+                    c.execute("UPDATE users SET status='expired' WHERE username=?", (target_user,))
+                conn.commit()
+                st.success(f"Updated status for {target_user} successfully!")
+                st.rerun()
+    else:
+        st.info("No client accounts registered yet.")
+
+    st.stop()
+
+# ----------------- ADMIN: LICENSE APPROVAL INTERFACE -----------------
 if st.session_state["role"] == "admin" and admin_mode == "License Approvals":
     st.markdown("## 💳 License Verification Queue")
     c = conn.cursor()
@@ -747,7 +840,6 @@ if uploaded_files:
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
-        # XML Parsing
         if fname.endswith('.xml'):
             s_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
             if not s_rows.empty:
@@ -821,7 +913,6 @@ if uploaded_files:
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
 
-    # Auto-consolidate Stock & Overheads from XML
     if business_data["Stock_DF"] is None and xml_stock_accumulator:
         consolidated_stk = pd.concat(xml_stock_accumulator, ignore_index=True)
         business_data["Stock_DF"] = consolidated_stk
@@ -838,9 +929,6 @@ if uploaded_files:
             else:
                 business_data["Indirect_Expenses"] += amt_x
 
-    # TRUE TALLY P&L MATHEMATICAL FORMULA
-    # Gross Profit = Sales Accounts + Direct Incomes + Closing Stock - (Opening Stock + Purchase Accounts + Direct Expenses)
-    # Note: If closing stock is negative (e.g. -3,28,674.22), it reduces gross profit exactly as in Tally!
     gross_profit = (business_data["Sales"] + business_data["Direct_Incomes"] + business_data["Closing_Stock"]) - (business_data["Purchase"] + business_data["Direct_Expenses"])
     net_profit = (gross_profit + business_data["Indirect_Incomes"]) - business_data["Indirect_Expenses"]
 
@@ -978,7 +1066,6 @@ if uploaded_files:
         )
 
     # Detailed Registers Tabs
-    st.markdown("### 📑 Detailed Accounting Ledgers")
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Sales Register", 
         "📦 Purchase Register", 
@@ -1019,15 +1106,11 @@ if uploaded_files:
             st.info("Stock Summary file ya Inventory-enabled Transactions.xml upload hone par stock records display honge.")
 
     with tab6:
-        # EXACT TALLY TRADITIONAL T-SHAPE PROFIT & LOSS STATEMENT
-        trading_total_cr = business_data["Sales"] + business_data["Direct_Incomes"]
-        trading_total_dr = business_data["Purchase"] + business_data["Direct_Expenses"] + (abs(business_data["Closing_Stock"]) if business_data["Closing_Stock"] < 0 else 0) + gross_profit
-        
         st.markdown(f"""
             <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px;">
                 <div style="text-align: center; margin-bottom: 18px;">
                     <h3 style="margin: 0; font-weight: 700; color: #F8FAFC;">Profit & Loss A/c</h3>
-                    <div style="font-size: 0.85rem; color: #94A3B8;">For the Period 1-Apr-2026 to 18-Sep-2026 (Tally Synchronized)</div>
+                    <div style="font-size: 0.85rem; color: #94A3B8;">Synchronized Trading & Profit Statement</div>
                 </div>
                 <table class="tally-pl-table">
                     <thead>
