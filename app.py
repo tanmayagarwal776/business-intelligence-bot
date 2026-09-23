@@ -19,7 +19,6 @@ st.set_page_config(
 
 # ----------------- ACCURATE INDIAN STANDARD TIME (IST) HELPER -----------------
 def get_ist_now():
-    # Streamlit Cloud UTC server time ko exact Indian Standard Time (UTC+5:30) me convert karta hai
     return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
 
 def get_ist_now_str():
@@ -133,6 +132,15 @@ st.markdown("""
     .badge-rose { background: rgba(244, 63, 94, 0.15); color: #FB7185; border: 1px solid rgba(244, 63, 94, 0.3); }
     .badge-amber { background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3); }
 
+    .ai-radar-card {
+        background: linear-gradient(135deg, rgba(30, 27, 75, 0.4) 0%, rgba(15, 23, 42, 0.8) 100%);
+        border: 1px solid rgba(129, 140, 248, 0.25);
+        border-radius: 18px;
+        padding: 22px;
+        margin-bottom: 20px;
+        box-shadow: 0 10px 30px rgba(79, 70, 229, 0.15);
+    }
+
     .luxury-statement-table {
         width: 100%;
         border-collapse: separate;
@@ -182,6 +190,23 @@ st.markdown("""
     .whatsapp-btn:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 24px rgba(37, 211, 102, 0.5);
+    }
+
+    .whatsapp-chase-badge {
+        background: rgba(37, 211, 102, 0.15);
+        color: #4ADE80 !important;
+        border: 1px solid rgba(37, 211, 102, 0.35);
+        padding: 6px 12px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 0.78rem;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .whatsapp-chase-badge:hover {
+        background: rgba(37, 211, 102, 0.25);
     }
 
     section[data-testid="stSidebar"] {
@@ -243,7 +268,7 @@ else:
         </script>
     """, unsafe_allow_html=True)
 
-# ----------------- DATABASE WITH SYSTEM CONFIG -----------------
+# ----------------- DATABASE -----------------
 def init_db():
     conn = sqlite3.connect("tally_users_v3.db", check_same_thread=False)
     c = conn.cursor()
@@ -260,14 +285,12 @@ def init_db():
             txn_id TEXT
         )
     """)
-    # Dynamic Pricing Config Table
     c.execute("""
         CREATE TABLE IF NOT EXISTS system_config (
             key TEXT PRIMARY KEY,
             value TEXT
         )
     """)
-    # Default Prices Agar Pehle Se Na Ho
     c.execute("INSERT OR IGNORE INTO system_config (key, value) VALUES ('price_monthly', '499')")
     c.execute("INSERT OR IGNORE INTO system_config (key, value) VALUES ('price_yearly', '2999')")
     conn.commit()
@@ -306,7 +329,6 @@ def check_device_trial_exists(device_hash):
 
 def add_user(username, password, phone, role="client", status="trial", plan="Free Trial (7 Days)", device_hash="", txn_id=""):
     c = conn.cursor()
-    # IST Accurate Timestamp
     ist_time_str = get_ist_now_str()
     c.execute("INSERT OR REPLACE INTO users (username, password, phone, role, status, plan, created_at, device_hash, txn_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
               (username, hash_pw(password), phone, role, status, plan, ist_time_str, device_hash, txn_id))
@@ -323,7 +345,6 @@ def verify_user_creds(username, password):
               (username, hash_pw(password)))
     return c.fetchone()
 
-# Default Admin Setup
 c = conn.cursor()
 c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
@@ -652,7 +673,6 @@ if not st.session_state["logged_in"]:
                             is_expired = False
                             if status == "trial":
                                 try:
-                                    # Parsing clean date
                                     dt_clean = usr["created_at"].split()[0]
                                     c_date = datetime.datetime.strptime(dt_clean, "%Y-%m-%d").date()
                                     if (get_ist_now().date() - c_date).days >= 7:
@@ -714,7 +734,7 @@ if not st.session_state["logged_in"]:
             st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# ----------------- TRIAL EXPIRED SCREEN (DYNAMIC PRICING LOADED) -----------------
+# ----------------- TRIAL EXPIRED SCREEN -----------------
 current_monthly_price, current_yearly_price = get_pricing_config()
 
 if st.session_state.get("status") == "expired":
@@ -829,7 +849,7 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
 
-# ----------------- ADMIN: USER CRM + PRICING CONTROLLER (NEW FEATURES) -----------------
+# ----------------- ADMIN: USER CRM + PRICING CONTROLLER -----------------
 if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM":
     st.markdown("""
         <div class="executive-topbar">
@@ -857,7 +877,7 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
 
     st.markdown("---")
 
-    # FEATURE 1: DYNAMIC SUBSCRIPTION PRICING MANAGER
+    # PRICING CONTROLLER
     st.markdown("### 💰 Subscription Pricing Manager (Live Store Controller)")
     st.caption("Admin portal se subscription rates instantly update karein. Clients ko renew screen par yahi naye rates dikhenge.")
     
@@ -875,7 +895,7 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
 
     st.markdown("---")
 
-    # FEATURE 2: CLIENT PORTFOLIO MASTER TABLE WITH ACCURATE IST
+    # CLIENT MASTER TABLE
     st.markdown("### 📋 Client Portfolio Master Table (Indian Standard Time)")
 
     table_data = []
@@ -988,6 +1008,7 @@ if uploaded_files:
         "Indirect_Incomes": 0.0,
         "MSME_Critical_Dues": 0.0,
         "Top_Customer": "N/A",
+        "Top_Customer_Amt": 0.0,
         "Critical_Count": 0,
         "Receivables_DF": None,
         "Payables_DF": None,
@@ -1023,6 +1044,7 @@ if uploaded_files:
                 top_c = s_rows.groupby("Party Name")["Amount"].sum().sort_values(ascending=False)
                 if not top_c.empty:
                     business_data["Top_Customer"] = top_c.index[0]
+                    business_data["Top_Customer_Amt"] = top_c.iloc[0]
 
             p_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("purchase|purch", na=False)]
             if not p_rows.empty:
@@ -1073,6 +1095,7 @@ if uploaded_files:
                     top_c = valid_parties.groupby("Party Name")["Amount"].sum().sort_values(ascending=False)
                     if not top_c.empty:
                         business_data["Top_Customer"] = top_c.index[0]
+                        business_data["Top_Customer_Amt"] = top_c.iloc[0]
 
         elif "receivable" in fname or "bill" in fname or "outstand" in fname or "Days_Overdue" in fdf.columns:
             business_data["Receivables_DF"] = fdf
@@ -1107,6 +1130,55 @@ if uploaded_files:
     gross_profit = (business_data["Sales"] + business_data["Direct_Incomes"] + business_data["Closing_Stock"]) - (business_data["Purchase"] + business_data["Direct_Expenses"])
     net_profit = (gross_profit + business_data["Indirect_Incomes"]) - business_data["Indirect_Expenses"]
 
+    # ----------------- ADVANCED AI HEALTH SCORE & RISK CALCULATOR -----------------
+    health_score = 100
+    risk_warnings = []
+    
+    # 1. Overdue Ratio Penalty
+    if business_data["Outstanding"] > 0:
+        overdue_ratio = (business_data["Overdue"] / business_data["Outstanding"]) * 100
+        if overdue_ratio > 40:
+            health_score -= 25
+            risk_warnings.append(f"⚠️ **Debtor Illiquidity Alert**: {overdue_ratio:.1f}% of total receivables are past due limits! Immediate cash flow impact predicted.")
+        elif overdue_ratio > 20:
+            health_score -= 10
+            risk_warnings.append(f"⚡ **Debtor Delay Warning**: {overdue_ratio:.1f}% receivables overdue.")
+
+    # 2. Customer Concentration Risk Penalty
+    if business_data["Sales"] > 0 and business_data["Top_Customer_Amt"] > 0:
+        cust_conc = (business_data["Top_Customer_Amt"] / business_data["Sales"]) * 100
+        if cust_conc > 35:
+            health_score -= 20
+            risk_warnings.append(f"🚨 **High Concentration Risk**: `{business_data['Top_Customer']}` drives {cust_conc:.1f}% of entire business revenue!")
+        elif cust_conc > 25:
+            health_score -= 10
+
+    # 3. Payables vs Receivables Liquidity Crunch
+    if business_data["Payables"] > business_data["Outstanding"] and business_data["Outstanding"] > 0:
+        health_score -= 15
+        diff = business_data["Payables"] - business_data["Outstanding"]
+        risk_warnings.append(f"🛑 **Working Capital Deficit**: Supplier payables exceed customer debtor receivables by ₹{diff:,.2f}.")
+
+    # 4. MSME 45-Day Statutory Penalty
+    if business_data["MSME_Critical_Dues"] > 0:
+        health_score -= 15
+        risk_warnings.append(f"⚖️ **MSME Section 43B(h) Risk**: Overdue vendor dues of ₹{business_data['MSME_Critical_Dues']:,.2f} exceeding 45 days face disallowance & tax interest.")
+
+    health_score = max(10, min(100, health_score))
+    
+    if health_score >= 80:
+        health_status = "PRIME STABILITY (LOW RISK)"
+        health_badge = "badge-emerald"
+        health_color = "#34D399"
+    elif health_score >= 55:
+        health_status = "MODERATE VULNERABILITY"
+        health_badge = "badge-amber"
+        health_color = "#FBBF24"
+    else:
+        health_status = "CRITICAL WORKING CAPITAL STRESS"
+        health_badge = "badge-rose"
+        health_color = "#FB7185"
+
     # Luxury Top Financial Banner
     st.markdown(f"""
         <div class="executive-topbar">
@@ -1117,10 +1189,41 @@ if uploaded_files:
             </div>
             <div style="text-align: right;">
                 <div style="font-size: 0.75rem; color: #94A3B8; font-weight: 600; text-transform: uppercase;">Reporting Cycle</div>
-                <div style="font-size: 1.05rem; font-weight: 700; color: #F8FAFC;">FY 2026-27 (YTD)</div>
+                <div style="font-size: 1.05rem; font-weight: 700; color: #F8FAFC;">FY {get_ist_now().year}-{str(get_ist_now().year+1)[-2:]} (Live)</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
+
+    # ----------------- AI RADAR & FINANCIAL HEALTH BANNER -----------------
+    st.markdown(f"""
+        <div class="ai-radar-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="font-size: 1.4rem;">🛡️</div>
+                    <div>
+                        <div style="font-size: 1.15rem; font-weight: 800; color: #F8FAFC;">AI Liquidity Radar & Financial Health Meter</div>
+                        <div style="font-size: 0.8rem; color: #94A3B8;">Real-time balance sheet audit, debtor concentration & working capital stress tests</div>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div class="badge-chip {health_badge}" style="font-size: 0.8rem;">{health_status}</div>
+                </div>
+            </div>
+            <div style="display: flex; align-items: baseline; gap: 12px; margin-top: 8px;">
+                <div style="font-size: 2.6rem; font-weight: 800; color: {health_color}; font-family: 'JetBrains Mono', monospace;">
+                    {health_score}<span style="font-size: 1.2rem; color: #64748B;"> / 100</span>
+                </div>
+                <div style="color: #94A3B8; font-size: 0.9rem;">
+                    Health Composite: Based on cash lockup, MSME compliance, turnover spread & payable liabilities.
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if risk_warnings:
+        with st.expander("⚡ View AI Risk & Working Capital Action Items", expanded=True):
+            for w in risk_warnings:
+                st.markdown(f"- {w}")
 
     # 4 Luxury KPI Glassmorphism Cards
     k1, k2, k3, k4 = st.columns(4)
@@ -1264,7 +1367,7 @@ if uploaded_files:
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Sales Register", 
         "📦 Purchase Register", 
-        "⚠️ Receivables (Debtors)", 
+        "⚠️ Receivables & WhatsApp Recovery", 
         "🏢 Payables (Creditors & MSME)",
         "📋 Stock Summary",
         "⚖️ Profit & Loss A/c"
@@ -1283,8 +1386,52 @@ if uploaded_files:
             st.info("Purchase billing records will populate once data is uploaded.")
             
     with tab3:
-        if business_data["Receivables_DF"] is not None:
-            st.dataframe(business_data["Receivables_DF"], use_container_width=True, height=400)
+        # ----------------- 1-CLICK WHATSAPP PAYMENT RECOVERY CHASER -----------------
+        if business_data["Receivables_DF"] is not None and not business_data["Receivables_DF"].empty:
+            st.markdown("#### ⚡ Debtor Ledger & Instant WhatsApp Payment Dues Chaser")
+            st.caption("Click 'Send WhatsApp Notice' to dispatch professional legal/business collection reminders directly to client phones.")
+
+            r_df = business_data["Receivables_DF"].copy()
+
+            # Top Overdue Quick Action Row
+            overdue_only = r_df[r_df["Days_Overdue"] >= credit_days_threshold]
+            if not overdue_only.empty:
+                st.markdown(f"""
+                    <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: 12px; padding: 14px 18px; margin-bottom: 15px;">
+                        <b style="color: #FB7185;">Critical Overdue Dues Action Center:</b> {len(overdue_only)} debtors have exceeded {credit_days_threshold} days threshold.
+                    </div>
+                """, unsafe_allow_html=True)
+
+                col_wa1, col_wa2, col_wa3 = st.columns([1.8, 1.2, 1.2])
+                with col_wa1:
+                    selected_party = st.selectbox("Select Overdue Debtor to Dispatch Notice:", overdue_only["Party Name"].unique(), key="chase_party_sel")
+                
+                party_rows = overdue_only[overdue_only["Party Name"] == selected_party]
+                total_party_due = party_rows["Amount"].sum()
+                max_days = party_rows["Days_Overdue"].max()
+                first_vch = party_rows["Vch No."].iloc[0] if "Vch No." in party_rows.columns and pd.notna(party_rows["Vch No."].iloc[0]) else "NA"
+
+                with col_wa2:
+                    st.metric("Total Outstanding Due", f"₹{total_party_due:,.2f}", f"{max_days} Days Delay")
+
+                with col_wa3:
+                    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+                    # Structured Legal / Polite Financial Notice
+                    chase_msg = quote(
+                        f"Dear {selected_party},\n\n"
+                        f"This is a formal payment update regarding your ledger balance of *₹{total_party_due:,.2f}* (Ref Vch: {first_vch}), "
+                        f"which is currently overdue by *{max_days} days* against our agreed credit terms of {credit_days_threshold} days.\n\n"
+                        f"Kindly confirm the transfer of funds today or provide the RTGS/NEFT transaction UTR to avoid hold on future dispatches.\n\n"
+                        f"Regards,\nAccounts & Finance Department"
+                    )
+                    wa_chase_url = f"https://api.whatsapp.com/send?text={chase_msg}"
+                    st.markdown(f"""
+                        <a href="{wa_chase_url}" target="_blank" class="whatsapp-chase-badge" style="padding: 10px 16px; font-size: 0.9rem;">
+                            💬 Send Legal Notice via WhatsApp
+                        </a>
+                    """, unsafe_allow_html=True)
+
+            st.dataframe(r_df, use_container_width=True, height=350)
         else:
             st.info("Debtor ageing entries will populate once data is uploaded.")
 
