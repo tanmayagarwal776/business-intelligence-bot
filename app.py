@@ -16,6 +16,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+# Google Site Verification Meta Tag
+st.markdown("""<meta name="google-site-verification" content="AAPKA_COPIED_CONTENT_ID" />""", unsafe_allow_html=True)
 
 # ----------------- SESSION STATE SETUP -----------------
 if "logged_in" not in st.session_state:
