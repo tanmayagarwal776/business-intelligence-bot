@@ -30,40 +30,53 @@ if "logged_in" not in st.session_state:
     st.session_state["otp_sent"] = False
     st.session_state["generated_otp"] = ""
     st.session_state["temp_user"] = None
-    st.session_state["sms_mode"] = ""
 
-# ----------------- ROLE-BASED DYNAMIC CSS (ADMIN VISIBILITY VS CLIENT PRIVACY) -----------------
+# ----------------- BULLETPROOF ROLE-BASED ACCESS UI -----------------
 is_admin_active = st.session_state.get("logged_in") and st.session_state.get("role") == "admin"
 
 if is_admin_active:
-    # Admin ke liye Toolbar aur Manage App visible rahega
-    custom_css = """
+    st.markdown("""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-        .stApp { background: radial-gradient(circle at 10% 20%, rgba(14, 23, 42, 0.95) 0%, rgba(15, 23, 42, 1) 90%); }
         header { visibility: visible !important; }
-        [data-testid="manage-app-button"] { display: block !important; }
         [data-testid="stToolbar"] { display: block !important; }
-    """
+        </style>
+    """, unsafe_allow_html=True)
 else:
-    # Client aur Public ke liye GitHub aur Manage App permanently hidden rahenge
-    custom_css = """
+    # Client ke liye CSS + JavaScript dono se permanently block
+    st.markdown("""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-        .stApp { background: radial-gradient(circle at 10% 20%, rgba(14, 23, 42, 0.95) 0%, rgba(15, 23, 42, 1) 90%); }
-        #MainMenu { visibility: hidden !important; }
-        footer { visibility: hidden !important; }
-        header { visibility: hidden !important; }
-        .viewerBadge_container__1QSob { display: none !important; }
-        .viewerBadge_link__1S137 { display: none !important; }
+        #MainMenu, footer, header { visibility: hidden !important; display: none !important; }
         [data-testid="stToolbar"] { display: none !important; }
         [data-testid="manage-app-button"] { display: none !important; }
+        button[kind="header"] { display: none !important; }
+        div[class*="viewerBadge"] { display: none !important; }
         div[class*="ProfileBadge"] { display: none !important; }
-    """
+        iframe[title="streamlit_app"] ~ div { display: none !important; }
+        div[data-testid="stDecoration"] { display: none !important; }
+        div[data-testid="stStatusWidget"] { display: none !important; }
+        </style>
 
-custom_css += """
+        <script>
+        function removeManageButton() {
+            const buttons = window.parent.document.querySelectorAll('button, div');
+            buttons.forEach(el => {
+                if (el.innerText && el.innerText.includes('Manage app')) {
+                    el.style.display = 'none';
+                    el.remove();
+                }
+            });
+            const toolbars = window.parent.document.querySelectorAll('[data-testid="stToolbar"], header');
+            toolbars.forEach(el => { el.style.display = 'none'; });
+        }
+        setInterval(removeManageButton, 300);
+        </script>
+    """, unsafe_allow_html=True)
+
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+    .stApp { background: radial-gradient(circle at 10% 20%, rgba(14, 23, 42, 0.95) 0%, rgba(15, 23, 42, 1) 90%); }
     .metric-card {
         background: rgba(30, 41, 59, 0.7);
         backdrop-filter: blur(12px);
@@ -149,33 +162,33 @@ custom_css += """
         background: rgba(15, 23, 42, 0.5);
     }
     </style>
-"""
-st.markdown(custom_css, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# ----------------- FAST2SMS GATEWAY INTEGRATION -----------------
+# ----------------- REAL MOBILE SMS GATEWAY -----------------
+# Yahan apni Fast2SMS API Key paste karein taaki SMS delivery active ho sake:
 FAST2SMS_API_KEY = ""
 
-def send_real_mobile_otp(phone_number, otp_code):
+def send_real_mobile_sms(phone_number, otp_code):
     if not FAST2SMS_API_KEY:
-        return False, "DEMO_MODE"
+        return False, "KEY_MISSING"
     try:
         url = "https://www.fast2sms.com/dev/bulkV2"
-        headers = {'authorization': FAST2SMS_API_KEY}
+        headers = {'authorization': FAST2SMS_API_KEY.strip()}
         payload = {
             'variables_values': str(otp_code),
             'route': 'otp',
-            'numbers': str(phone_number)
+            'numbers': str(phone_number)[-10:]
         }
-        res = requests.post(url, data=payload, headers=headers, timeout=6)
+        res = requests.post(url, data=payload, headers=headers, timeout=8)
         json_data = res.json()
         if json_data.get('return'):
             return True, "SMS_SENT"
         else:
-            return False, json_data.get('message', 'SMS Gateway Error')
+            return False, str(json_data.get('message'))
     except Exception as e:
         return False, str(e)
 
-# ----------------- DATABASE INITIALIZATION WITH PHONE -----------------
+# ----------------- DATABASE INITIALIZATION -----------------
 def init_db():
     conn = sqlite3.connect("tally_users_v3.db", check_same_thread=False)
     c = conn.cursor()
@@ -196,19 +209,6 @@ def init_db():
     return conn
 
 conn = init_db()
-
-def migrate_db_schema():
-    c = conn.cursor()
-    c.execute("PRAGMA table_info(users)")
-    cols = [r[1] for r in c.fetchall()]
-    if "phone" not in cols:
-        try:
-            c.execute("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''")
-            conn.commit()
-        except Exception:
-            pass
-
-migrate_db_schema()
 
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -533,26 +533,25 @@ if not st.session_state["logged_in"]:
                             reg_phone, role, status, plan, created_at = res
                             otp = str(random.randint(100000, 999999))
                             st.session_state["generated_otp"] = otp
-                            st.session_state["otp_sent"] = True
                             st.session_state["temp_user"] = {
                                 "username": u, "phone": phone, "role": role, 
                                 "status": status, "plan": plan, "created_at": created_at
                             }
-                            # Send real SMS via Gateway
-                            sent, mode = send_real_mobile_otp(phone.strip(), otp)
-                            st.session_state["sms_mode"] = mode
-                            st.rerun()
+                            
+                            sent, status_msg = send_real_mobile_sms(phone.strip(), otp)
+                            if sent or status_msg == "KEY_MISSING":
+                                st.session_state["otp_sent"] = True
+                                st.rerun()
+                            else:
+                                st.error(f"Failed to send SMS to {phone}: {status_msg}")
                         else:
                             st.error("Invalid username or password.")
                     else:
                         st.error("Please provide valid username, password and 10-digit phone number.")
             else:
-                if st.session_state.get("sms_mode") == "SMS_SENT":
-                    st.success(f"📲 6-Digit OTP sent successfully to your mobile: +91 {phone[-10:]} via SMS!")
-                else:
-                    st.info(f"📲 SMS Mode [Test Gateway]: OTP is **`{st.session_state['generated_otp']}`**")
+                st.success(f"📲 Verification Code sent to mobile: +91 {phone[-10:]}. Please check your SMS inbox.")
 
-                entered_otp = st.text_input("Enter 6-Digit OTP Received", placeholder="••••••")
+                entered_otp = st.text_input("Enter 6-Digit OTP Received via SMS", placeholder="••••••")
                 col_sub1, col_sub2 = st.columns(2)
                 with col_sub1:
                     if st.button("Verify OTP & Login", use_container_width=True, type="primary"):
@@ -579,7 +578,7 @@ if not st.session_state["logged_in"]:
                             st.session_state["otp_sent"] = False
                             st.rerun()
                         else:
-                            st.error("Incorrect OTP entered.")
+                            st.error("Incorrect OTP entered. Please check SMS.")
                 with col_sub2:
                     if st.button("Resend / Reset", use_container_width=True):
                         st.session_state["otp_sent"] = False
