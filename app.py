@@ -17,6 +17,178 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ----------------- LUXURY FINTECH GLASSMORPHISM THEME -----------------
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        color: #F1F5F9;
+    }
+    
+    .stApp {
+        background: radial-gradient(circle at 15% 10%, rgba(30, 41, 59, 0.45) 0%, transparent 60%),
+                    radial-gradient(circle at 85% 85%, rgba(15, 23, 42, 0.9) 0%, transparent 55%),
+                    linear-gradient(135deg, #090D16 0%, #0F172A 50%, #0B1120 100%) !important;
+        background-attachment: fixed !important;
+    }
+
+    /* Executive Top Bar */
+    .executive-topbar {
+        background: rgba(15, 23, 42, 0.65);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px;
+        padding: 16px 24px;
+        margin-bottom: 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+
+    /* Premium Metric Glass Cards */
+    .metric-card {
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.7) 100%);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 22px;
+        border-radius: 20px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+        position: relative;
+        overflow: hidden;
+        transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+        margin-bottom: 14px;
+    }
+    .metric-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(99, 102, 241, 0.45);
+        box-shadow: 0 16px 40px rgba(99, 102, 241, 0.15);
+    }
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+    }
+    .metric-label {
+        font-size: 0.76rem;
+        font-weight: 600;
+        color: #94A3B8;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .metric-val {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #F8FAFC;
+        letter-spacing: -0.03em;
+    }
+    .metric-sub {
+        font-size: 0.78rem;
+        margin-top: 8px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    /* Luxury Info Panels */
+    .info-card {
+        background: rgba(15, 23, 42, 0.55);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 18px;
+        padding: 20px 24px;
+        margin-bottom: 18px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Chips & Badges */
+    .badge-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+    .badge-indigo { background: rgba(99, 102, 241, 0.15); color: #818CF8; border: 1px solid rgba(99, 102, 241, 0.3); }
+    .badge-emerald { background: rgba(16, 185, 129, 0.15); color: #34D399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-rose { background: rgba(244, 63, 94, 0.15); color: #FB7185; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .badge-amber { background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+    /* Custom T-Shape Statement Table */
+    .luxury-statement-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 0.92rem;
+        color: #E2E8F0;
+        margin-top: 10px;
+    }
+    .luxury-statement-table th {
+        background: rgba(30, 41, 59, 0.65);
+        padding: 12px 16px;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+        color: #94A3B8;
+    }
+    .luxury-statement-table td {
+        padding: 11px 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        background: rgba(15, 23, 42, 0.25);
+    }
+    .luxury-statement-table tr:hover td {
+        background: rgba(30, 41, 59, 0.45);
+    }
+    .luxury-statement-total {
+        font-weight: 700;
+        border-top: 2px solid rgba(255, 255, 255, 0.15) !important;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.15) !important;
+        background: rgba(30, 41, 59, 0.75) !important;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* WhatsApp Button Pulsing Effect */
+    .whatsapp-btn {
+        display: inline-block;
+        background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+        color: #FFFFFF !important;
+        text-align: center;
+        padding: 13px 20px;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 0.95rem;
+        text-decoration: none;
+        box-shadow: 0 6px 20px rgba(37, 211, 102, 0.35);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .whatsapp-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(37, 211, 102, 0.5);
+    }
+
+    section[data-testid="stSidebar"] {
+        background: #080D1A !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # ----------------- SESSION STATE SETUP -----------------
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
@@ -68,53 +240,6 @@ else:
         setInterval(removeManageButton, 300);
         </script>
     """, unsafe_allow_html=True)
-
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background: radial-gradient(circle at 10% 20%, rgba(14, 23, 42, 0.95) 0%, rgba(15, 23, 42, 1) 90%); }
-    .metric-card {
-        background: rgba(30, 41, 59, 0.7);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 20px;
-        border-radius: 16px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-        transition: transform 0.2s ease, border-color 0.2s ease;
-        margin-bottom: 12px;
-    }
-    .metric-card:hover { transform: translateY(-2px); border-color: rgba(99, 102, 241, 0.4); }
-    .metric-label { font-size: 0.8rem; font-weight: 500; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
-    .metric-val { font-size: 1.65rem; font-weight: 700; color: #F8FAFC; }
-    .metric-sub { font-size: 0.78rem; margin-top: 6px; font-weight: 500; }
-    .info-card { background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 14px; padding: 18px 22px; margin-bottom: 15px; }
-    .support-box { background: rgba(15, 23, 42, 0.6); border: 1px dashed rgba(99, 102, 241, 0.35); border-radius: 12px; padding: 12px 16px; margin-top: 15px; text-align: center; }
-    section[data-testid="stSidebar"] { background-color: #0B1120; border-right: 1px solid rgba(255, 255, 255, 0.06); }
-    .badge-tag { display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; margin-bottom: 10px; }
-    .badge-primary { background: rgba(99, 102, 241, 0.2); color: #818CF8; border: 1px solid rgba(99, 102, 241, 0.3); }
-    .badge-danger { background: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.25); }
-    .badge-success { background: rgba(34, 197, 94, 0.15); color: #4ADE80; border: 1px solid rgba(34, 197, 94, 0.25); }
-    .whatsapp-btn {
-        display: block;
-        background: #25D366;
-        color: #FFFFFF !important;
-        text-align: center;
-        padding: 12px;
-        border-radius: 10px;
-        font-weight: 700;
-        font-size: 1rem;
-        text-decoration: none;
-        margin-top: 12px;
-        margin-bottom: 15px;
-        box-shadow: 0 4px 14px rgba(37, 211, 102, 0.3);
-    }
-    .tally-pl-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; color: #F8FAFC; }
-    .tally-pl-table th { background: rgba(30, 41, 59, 0.8); padding: 10px 14px; border-bottom: 2px solid rgba(255, 255, 255, 0.1); text-align: left; }
-    .tally-pl-table td { padding: 8px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
-    .tally-total-row { font-weight: 700; border-top: 2px solid rgba(255, 255, 255, 0.2); border-bottom: 2px solid rgba(255, 255, 255, 0.2); background: rgba(15, 23, 42, 0.5); }
-    </style>
-""", unsafe_allow_html=True)
 
 # ----------------- DATABASE -----------------
 def init_db():
@@ -184,11 +309,10 @@ def verify_user_creds(username, password):
               (username, hash_pw(password)))
     return c.fetchone()
 
-# Admin Account Default
 c = conn.cursor()
 c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
-    add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
+    add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")[cite: 14]
 
 # ----------------- TALLY DATA ENGINE -----------------
 def extract_all_from_xml(uploaded_file):
@@ -444,25 +568,29 @@ def generate_upi_qr(vpa, name, amount):
     img.save(buf)
     return buf.getvalue()
 
-# ----------------- AUTHENTICATION -----------------
+# ----------------- AUTHENTICATION (LUXURY FINTECH UI) -----------------
 if not st.session_state["logged_in"]:
     st.markdown("""
-        <div style="text-align: center; margin-top: 40px; margin-bottom: 25px;">
-            <div class="badge-tag badge-primary">WHATSAPP SECURE ENTERPRISE SUITE</div>
-            <h1 style="font-weight: 800; font-size: 2.6rem; letter-spacing: -0.02em; margin-bottom: 8px;">Tally Executive Suite</h1>
-            <p style="color: #94A3B8; font-size: 1.05rem;">Turn raw Tally exports into executive P&L, stock intelligence & CA dossiers</p>
+        <div style="text-align: center; margin-top: 50px; margin-bottom: 35px;">
+            <div class="badge-chip badge-indigo" style="margin-bottom: 12px;">Next-Gen Financial Intelligence</div>
+            <h1 style="font-weight: 800; font-size: 3.1rem; letter-spacing: -0.04em; margin-bottom: 8px; background: linear-gradient(180deg, #FFFFFF 0%, #94A3B8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                Tally Executive BI Suite
+            </h1>
+            <p style="color: #94A3B8; font-size: 1.05rem; font-weight: 400; max-width: 580px; margin: auto;">
+                Transform raw Tally ERP transactions into auditable working capital insights, live P&L statements & CA dossiers.
+            </p>
         </div>
     """, unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1, 1.8, 1])
+    col1, col2, col3 = st.columns([1, 1.7, 1])
     with col2:
         menu = ["Sign In", "Start 7-Day Free Trial"]
         choice = st.segmented_control("Access Mode", menu, default="Sign In")
 
         if choice == "Sign In":
             st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-            u = st.text_input("Username", placeholder="Enter business ID")
-            p = st.text_input("Password", type="password", placeholder="••••••••")
+            u = st.text_input("Business Username", placeholder="e.g. industrial_trade")
+            p = st.text_input("Security Password", type="password", placeholder="••••••••")
             phone = st.text_input("Registered 10-Digit Mobile No.", placeholder="e.g. 9876543210")
 
             if not st.session_state["otp_sent"]:
@@ -480,27 +608,29 @@ if not st.session_state["logged_in"]:
                             st.session_state["otp_sent"] = True
                             st.rerun()
                         else:
-                            st.error("Invalid username or password.")
+                            st.error("Invalid credentials provided.")
                     else:
-                        st.error("Please provide valid username, password and 10-digit phone number.")
+                        st.error("Please provide valid username, password and 10-digit mobile number.")
             else:
                 target_phone = phone.strip()[-10:]
                 msg_body = quote(f"Hello, your Tally Executive Suite Login OTP is: {st.session_state['generated_otp']}. Valid for 10 minutes.")
                 wa_link = f"https://api.whatsapp.com/send?phone=91{target_phone}&text={msg_body}"
 
                 st.markdown(f"""
-                    <a href="{wa_link}" target="_blank" class="whatsapp-btn">
-                        💬 Click Here: Send OTP to My WhatsApp (+91 {target_phone})
-                    </a>
+                    <div style="text-align: center; margin: 15px 0;">
+                        <a href="{wa_link}" target="_blank" class="whatsapp-btn">
+                            💬 Send Instant OTP to WhatsApp (+91 {target_phone})
+                        </a>
+                    </div>
                 """, unsafe_allow_html=True)
 
-                with st.expander("👁️ Cannot access WhatsApp? Click to view OTP"):
-                    st.info(f"Verification OTP: **`{st.session_state['generated_otp']}`**")
+                with st.expander("👁️ Backup: Display OTP on screen"):
+                    st.info(f"Verification Code: **`{st.session_state['generated_otp']}`**")
 
-                entered_otp = st.text_input("Enter 6-Digit Verification OTP", placeholder="••••••")
+                entered_otp = st.text_input("Enter 6-Digit OTP", placeholder="••••••")
                 col_sub1, col_sub2 = st.columns(2)
                 with col_sub1:
-                    if st.button("Verify OTP & Login", use_container_width=True, type="primary"):
+                    if st.button("Verify OTP & Authorize", use_container_width=True, type="primary"):
                         if entered_otp.strip() == st.session_state["generated_otp"]:
                             usr = st.session_state["temp_user"]
                             status = usr["status"]
@@ -524,68 +654,68 @@ if not st.session_state["logged_in"]:
                             st.session_state["otp_sent"] = False
                             st.rerun()
                         else:
-                            st.error("Incorrect OTP entered.")
+                            st.error("Incorrect verification token entered.")
                 with col_sub2:
-                    if st.button("Resend / Reset", use_container_width=True):
+                    if st.button("Reset Session", use_container_width=True):
                         st.session_state["otp_sent"] = False
                         st.rerun()
 
             st.markdown("""
                 <div class="support-box">
-                    <span style="color: #94A3B8; font-size: 0.85rem;">📞 Helpline & Support:</span><br>
-                    <a href="tel:7016882039" style="color: #818CF8; font-weight: 700; text-decoration: none; font-size: 1rem;">+91 7016882039</a>
+                    <span style="color: #94A3B8; font-size: 0.82rem;">Direct Executive Concierge</span><br>
+                    <a href="tel:7016882039" style="color: #818CF8; font-weight: 700; text-decoration: none; font-size: 0.95rem;">+91 7016882039</a>
                 </div>
             """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         elif choice == "Start 7-Day Free Trial":
             st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-            new_u = st.text_input("Choose Username", placeholder="e.g. industrial_trade")
-            new_p = st.text_input("Choose Password", type="password", placeholder="••••••••")
-            new_phone = st.text_input("Mobile Number (WhatsApp Enabled)", placeholder="10-digit mobile number")
+            new_u = st.text_input("Desired Username", placeholder="e.g. shree_balaji")
+            new_p = st.text_input("Set Password", type="password", placeholder="••••••••")
+            new_phone = st.text_input("Mobile Number (WhatsApp Active)", placeholder="10-digit mobile number")
             
-            st.caption("🔒 7-day full access included. Instant WhatsApp Verification.")
-            if st.button("Register & Activate Trial", use_container_width=True, type="primary"):
+            st.caption("🔒 Includes 7-day unlimited access to all auditing modules & P&L intelligence.")
+            if st.button("Activate Free Enterprise Evaluation", use_container_width=True, type="primary"):
                 if new_u and new_p and new_phone and len(new_phone.strip()) >= 10:
                     c = conn.cursor()
                     c.execute("SELECT * FROM users WHERE username=?", (new_u,))
                     if c.fetchone():
-                        st.error("Username is already claimed.")
+                        st.error("Username is already allocated.")
                     else:
                         dev_hash = get_client_device_hash(new_u)
                         prev_acc = check_device_trial_exists(dev_hash)
                         if prev_acc:
-                            st.error(f"🚫 Workstation Trial Exists (`{prev_acc[0]}`). Please log in with existing account.")
+                            st.error(f"🚫 Workstation trial already claimed by `{prev_acc[0]}`. Please sign in.")
                         else:
                             add_user(new_u, new_p, new_phone.strip(), role="client", status="trial", plan="Free Trial (7 Days)", device_hash=dev_hash, txn_id="FREE_TRIAL")
-                            st.success("🎉 Account activated! Switch to 'Sign In' to login via WhatsApp OTP.")
+                            st.success("🎉 Enterprise trial unlocked! Switch to 'Sign In' to authorize.")
                 else:
-                    st.error("Please fill all fields including 10-digit mobile number.")
+                    st.error("Please complete all fields with a valid 10-digit mobile number.")
             st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# ----------------- TRIAL EXPIRED PAYMENT SCREEN -----------------
+# ----------------- TRIAL EXPIRED SCREEN -----------------
 if st.session_state.get("status") == "expired":
     st.markdown("""
-        <div style="text-align: center; margin-top: 30px; margin-bottom: 25px;">
-            <div class="badge-tag badge-danger">TRIAL PERIOD EXPIRED</div>
-            <h2 style="font-weight: 700;">Renew Your Executive Access</h2>
-            <p style="color: #94A3B8;">Your 7-day evaluation has concluded. Select an ongoing license below to continue analysis.</p>
+        <div style="text-align: center; margin-top: 40px; margin-bottom: 25px;">
+            <div class="badge-chip badge-rose" style="margin-bottom: 10px;">Evaluation Period Concluded</div>
+            <h2 style="font-weight: 800; font-size: 2.3rem;">Renew Executive Access</h2>
+            <p style="color: #94A3B8;">Unlock ongoing Tally compliance, automated debtor tracking & March CA audit exports.</p>
         </div>
     """, unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns([1, 1.8, 1])
     with c2:
         st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-        plan_sel = st.radio("Select Subscription Plan:", ["Monthly License — ₹499 / Month", "Annual Enterprise — ₹2,999 / Year (Best Value)"])
+        plan_sel = st.radio("Subscription Tier:", ["Monthly License — ₹499 / Month", "Annual Enterprise — ₹2,999 / Year (Best Value)"])
         amt = 499 if "499" in plan_sel else 2999
         p_name = "Monthly (₹499)" if amt == 499 else "Yearly (₹2999)"
 
         col_q1, col_q2 = st.columns([1.2, 1])
         with col_q1:
-            st.markdown(f"**Amount Due:** `₹{amt:,}`")
+            st.markdown(f"**Amount Payable:** `₹{amt:,}`")
             st.markdown("**UPI VPA:** `tanmayagarwal776@okhdfcbank`")
-            pay_tx = st.text_input("12-Digit Bank / UPI UTR Ref No:")
+            pay_tx = st.text_input("12-Digit Bank UTR / Ref Number:")
         with col_q2:
             qr_img = generate_upi_qr("tanmayagarwal776@okhdfcbank", "Tanmay Agarwal", amt)
             st.image(qr_img, width=170)
@@ -593,7 +723,7 @@ if st.session_state.get("status") == "expired":
         if st.button("Submit License Verification", use_container_width=True, type="primary"):
             if pay_tx.strip():
                 update_user_payment(st.session_state["username"], p_name, pay_tx.strip())
-                st.success("✅ Payment reference logged. Account unlocks immediately upon admin audit.")
+                st.success("✅ Payment reference logged. Audit suite activates upon clearance.")
             else:
                 st.error("Valid transaction reference required.")
 
@@ -613,18 +743,18 @@ if st.session_state.get("status") == "expired":
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
     st.markdown(f"""
-        <div style="padding: 12px 4px 18px 4px;">
-            <div style="font-size: 0.8rem; color: #64748B; font-weight: 600;">ACTIVE WORKSPACE</div>
-            <div style="font-size: 1.1rem; font-weight: 700; color: #F8FAFC;">{st.session_state['username']}</div>
+        <div style="padding: 14px 4px 18px 4px;">
+            <div style="font-size: 0.75rem; color: #64748B; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;">Workspace</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: #F8FAFC; margin-top: 2px;">{st.session_state['username']}</div>
         </div>
     """, unsafe_allow_html=True)
 
     if st.session_state["status"] == "trial":
         c_date = datetime.datetime.strptime(st.session_state.get("created_at", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")), "%Y-%m-%d %H:%M:%S")
         days_left = max(0, 7 - (datetime.datetime.now() - c_date).days)
-        st.markdown(f'<div class="badge-tag badge-primary">Trial: {days_left} Days Remaining</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="badge-chip badge-amber">Trial: {days_left} Days Left</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<div class="badge-tag badge-success">{st.session_state.get("plan", "Enterprise License")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="badge-chip badge-emerald">{st.session_state.get("plan", "Enterprise Tier")}</div>', unsafe_allow_html=True)
 
     if st.button("Sign Out", use_container_width=True, key="admin_app_signout"):
         st.session_state.clear()
@@ -633,37 +763,37 @@ with st.sidebar:
     st.markdown("---")
 
     if st.session_state["role"] == "admin":
-        admin_mode = st.radio("Console Navigation", ["Analytics Dashboard", "User Management & CRM", "License Approvals"], key="admin_console_nav_radio")
+        admin_mode = st.radio("Console View", ["Analytics Dashboard", "User Management & CRM", "License Approvals"], key="admin_console_nav_radio")
     else:
         admin_mode = "Analytics Dashboard"
 
     st.markdown("#### ⚙️ Business Rules")
     credit_days_threshold = st.slider(
-        "Standard Credit Period (Days)", 
+        "Debtor Credit Limit (Days)", 
         min_value=15, 
         max_value=180, 
         value=65, 
         step=5,
-        help="Allowed credit days set karein (Salt: 65 Days)."
+        help="Standard credit days setting (Salt Industry benchmark: 65 Days)."
     )
 
     st.markdown("---")
-    st.markdown("#### 📂 Tally Reports / Direct XML")
+    st.markdown("#### 📂 Tally Data Ingestion")
     uploaded_files = st.file_uploader(
-        "Upload Tally Files (.xlsx, .xls, .csv, .xml)",
+        "Upload Tally Files (.xml, .xlsx, .csv)",
         type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
-        help="Tally Transactions.xml ya Stock Summary Excel exports upload karein."
+        help="Drop your direct Tally Transactions.xml or stock ledger exports."
     )
 
     st.markdown("---")
     st.markdown("""
-        <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px; text-align: center;">
-            <div style="font-size: 0.75rem; color: #94A3B8; font-weight: 600; text-transform: uppercase;">Helpdesk & Support</div>
-            <div style="font-size: 1.05rem; font-weight: 700; color: #38BDF8; margin-top: 4px;">7016882039</div>
+        <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 14px; text-align: center;">
+            <div style="font-size: 0.72rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Direct CA Support</div>
+            <div style="font-size: 1.1rem; font-weight: 800; color: #38BDF8; margin-top: 4px; font-family: 'JetBrains Mono', monospace;">7016882039</div>
             <div style="margin-top: 8px;">
-                <a href="https://wa.me/917016882039" target="_blank" style="background: rgba(34, 197, 94, 0.2); color: #4ADE80; padding: 4px 10px; border-radius: 6px; text-decoration: none; font-size: 0.8rem; font-weight: 600; border: 1px solid rgba(34, 197, 94, 0.3);">WhatsApp</a>
-                <a href="tel:7016882039" style="background: rgba(99, 102, 241, 0.2); color: #818CF8; padding: 4px 10px; border-radius: 6px; text-decoration: none; font-size: 0.8rem; font-weight: 600; border: 1px solid rgba(99, 102, 241, 0.3); margin-left: 6px;">Call</a>
+                <a href="https://wa.me/917016882039" target="_blank" style="background: rgba(34, 197, 94, 0.2); color: #4ADE80; padding: 5px 12px; border-radius: 8px; text-decoration: none; font-size: 0.78rem; font-weight: 700; border: 1px solid rgba(34, 197, 94, 0.35);">WhatsApp</a>
+                <a href="tel:7016882039" style="background: rgba(99, 102, 241, 0.2); color: #818CF8; padding: 5px 12px; border-radius: 8px; text-decoration: none; font-size: 0.78rem; font-weight: 700; border: 1px solid rgba(99, 102, 241, 0.35); margin-left: 6px;">Call</a>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -671,11 +801,12 @@ with st.sidebar:
 # ----------------- ADMIN: USER CRM -----------------
 if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM":
     st.markdown("""
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div class="executive-topbar">
             <div>
-                <h2 style="font-weight: 800; margin: 0;">👥 User Directory & Subscription CRM</h2>
-                <p style="color: #94A3B8; margin-top: 4px;">Live customer tracking, Free Trial status & manual subscription override</p>
+                <h2 style="font-weight: 800; margin: 0; font-size: 1.7rem;">👥 User Directory & Subscription CRM</h2>
+                <div style="color: #94A3B8; font-size: 0.88rem; margin-top: 3px;">Live customer telemetry & entitlement overrides</div>
             </div>
+            <div class="badge-chip badge-indigo">Admin Portal</div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -688,10 +819,10 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
     expired_u = sum(1 for x in all_users if x[3] in ["expired", "pending"])
 
     crm1, crm2, crm3, crm4 = st.columns(4)
-    crm1.metric("Total Registered Users", total_u)
-    crm2.metric("Active Free Trials", trial_u)
+    crm1.metric("Registered Accounts", total_u)
+    crm2.metric("Active Trials", trial_u)
     crm3.metric("Paid Subscriptions", paid_u)
-    crm4.metric("Expired / Pending", expired_u)
+    crm4.metric("Pending / Expired", expired_u)
 
     st.markdown("---")
     st.markdown("### 📋 Client Portfolio Master Table")
@@ -709,7 +840,7 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
             except Exception:
                 days_rem = "Active"
         elif u_stat == "approved":
-            days_rem = "Unlimited / Paid"
+            days_rem = "Lifetime / Active"
         elif u_stat == "expired":
             days_rem = "0 Days (Expired)"
         elif u_stat == "pending":
@@ -718,26 +849,26 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
         table_data.append({
             "Username": u_name,
             "Mobile No.": u_ph if u_ph else "-",
-            "Role": u_role,
+            "Role": u_role.upper(),
             "Status": u_stat.upper(),
             "Plan Type": u_pl,
-            "Trial / License Balance": days_rem,
+            "Entitlement Balance": days_rem,
             "Registration Date": u_cr,
-            "Last Transaction Ref": u_tx if u_tx else "N/A"
+            "Bank Ref": u_tx if u_tx else "N/A"
         })
 
     st.dataframe(pd.DataFrame(table_data), use_container_width=True, height=350)
 
     st.markdown("---")
-    st.markdown("### 🛠️ Manual User Subscription Override")
+    st.markdown("### 🛠️ Instant User Entitlement Override")
     
     non_admin_usernames = [x[0] for x in all_users if x[0] != "tanmay_admin"]
     if non_admin_usernames:
         col_ov1, col_ov2, col_ov3 = st.columns([1.5, 1.5, 1])
         with col_ov1:
-            target_user = st.selectbox("Select User Account:", non_admin_usernames)
+            target_user = st.selectbox("Select Client:", non_admin_usernames)
         with col_ov2:
-            new_status_action = st.selectbox("Set Access Status:", [
+            new_status_action = st.selectbox("Assign Action:", [
                 "Grant Annual Enterprise (Approve)",
                 "Grant Monthly License (Approve)",
                 "Reset 7-Day Free Trial",
@@ -745,7 +876,7 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
             ])
         with col_ov3:
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            if st.button("Apply Action", type="primary", use_container_width=True):
+            if st.button("Execute Override", type="primary", use_container_width=True):
                 c = conn.cursor()
                 now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 if "Annual" in new_status_action:
@@ -924,102 +1055,122 @@ if uploaded_files:
     gross_profit = (business_data["Sales"] + business_data["Direct_Incomes"] + business_data["Closing_Stock"]) - (business_data["Purchase"] + business_data["Direct_Expenses"])
     net_profit = (gross_profit + business_data["Indirect_Incomes"]) - business_data["Indirect_Expenses"]
 
-    # Header
-    st.markdown("""
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+    # Luxury Top Financial Banner
+    st.markdown(f"""
+        <div class="executive-topbar">
             <div>
-                <h2 style="font-weight: 800; margin-bottom: 4px; letter-spacing: -0.02em;">Executive Performance & CA Audit Dashboard</h2>
-                <p style="color: #94A3B8; font-size: 0.95rem; margin: 0;">Reconciliation, Working Capital, Overdues & Tax Compliance</p>
+                <div class="badge-chip badge-emerald" style="margin-bottom: 6px;">Live Ledger Reconciled</div>
+                <h2 style="font-weight: 800; font-size: 1.85rem; letter-spacing: -0.03em; margin: 0;">Enterprise Financial Overview</h2>
+                <div style="color: #94A3B8; font-size: 0.9rem; margin-top: 4px;">Synchronized with Tally Prime Accounting Standard AS-2</div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 0.75rem; color: #94A3B8; font-weight: 600; text-transform: uppercase;">Reporting Cycle</div>
+                <div style="font-size: 1.05rem; font-weight: 700; color: #F8FAFC;">FY 2026-27 (YTD)</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    # 4 Core KPI Cards
+    # 4 Luxury KPI Glassmorphism Cards
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">Gross Revenue (Turnover)</div>
+                <div class="metric-label">
+                    <span>Revenue (Turnover)</span>
+                    <span class="badge-chip badge-emerald">Sales A/c</span>
+                </div>
                 <div class="metric-val">₹{business_data['Sales']:,.2f}</div>
-                <div class="metric-sub" style="color: #34D399;">● Reconciled Sales Accounts</div>
+                <div class="metric-sub" style="color: #34D399;">● Reconciled Trading Ledger</div>
             </div>
         """, unsafe_allow_html=True)
     with k2:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">Total Outstandings</div>
+                <div class="metric-label">
+                    <span>Debtor Book</span>
+                    <span class="badge-chip badge-indigo">Receivables</span>
+                </div>
                 <div class="metric-val">₹{business_data['Outstanding']:,.2f}</div>
-                <div class="metric-sub" style="color: #38BDF8;">● Customer Debtors</div>
+                <div class="metric-sub" style="color: #818CF8;">● Current Assets (Sundry)</div>
             </div>
         """, unsafe_allow_html=True)
     with k3:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">Overdue Portfolio</div>
-                <div class="metric-val" style="color: #F87171;">₹{business_data['Overdue']:,.2f}</div>
-                <div class="metric-sub" style="color: #F87171;">● Due Date Crossed ({credit_days_threshold}+ Days)</div>
+                <div class="metric-label">
+                    <span>Overdue Risk</span>
+                    <span class="badge-chip badge-rose">{credit_days_threshold}+ Days</span>
+                </div>
+                <div class="metric-val" style="color: #FB7185;">₹{business_data['Overdue']:,.2f}</div>
+                <div class="metric-sub" style="color: #FB7185;">● Working Capital Lockup</div>
             </div>
         """, unsafe_allow_html=True)
     with k4:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">Total Payables</div>
+                <div class="metric-label">
+                    <span>Vendor Exposure</span>
+                    <span class="badge-chip badge-amber">Payables</span>
+                </div>
                 <div class="metric-val">₹{business_data['Payables']:,.2f}</div>
-                <div class="metric-sub" style="color: #FB7185;">● Vendor Outstandings</div>
+                <div class="metric-sub" style="color: #FBBF24;">● Supplier Liabilities</div>
             </div>
         """, unsafe_allow_html=True)
 
-    # Key Accounts & Critical Risk Row
+    # Key Revenue Account & Critical Risk Split
     c_sub1, c_sub2 = st.columns(2)
     with c_sub1:
         st.markdown(f"""
             <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">KEY REVENUE DRIVER</div>
-                    <div style="font-size: 1.25rem; font-weight: 700;">{str(business_data['Top_Customer'])[:20]}</div>
+                    <div style="font-size: 0.76rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Primary Revenue Contributor</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: #F8FAFC; margin-top: 3px;">{str(business_data['Top_Customer'])[:22]}</div>
                 </div>
-                <div class="badge-tag badge-primary" style="margin: 0;">TOP BUYER ACCOUNT</div>
+                <div class="badge-chip badge-indigo">Anchor Buyer</div>
             </div>
         """, unsafe_allow_html=True)
     with c_sub2:
         st.markdown(f"""
             <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <div style="font-size: 0.8rem; color: #94A3B8; font-weight: 600;">CRITICAL OVERDUE RISK</div>
-                    <div style="font-size: 1.25rem; font-weight: 700; color: #F87171;">{business_data['Critical_Count']} Accounts Exceeded</div>
+                    <div style="font-size: 0.76rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Debtor Exposure Beyond Benchmark</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: #FB7185; margin-top: 3px;">{business_data['Critical_Count']} Overdue Accounts</div>
                 </div>
-                <div class="badge-tag badge-danger" style="margin: 0;">THRESHOLD: {credit_days_threshold}+ DAYS</div>
+                <div class="badge-chip badge-rose">Limit: {credit_days_threshold} Days</div>
             </div>
         """, unsafe_allow_html=True)
 
-    # P&L Summary Cards
-    st.markdown("### 📈 P&L & Operating Margins (Tally Mode)")
+    # Executive P&L Snapshot
+    st.markdown("### 📊 Margin Telemetry & Operating Spread")
     pl_c1, pl_c2, pl_c3, pl_c4 = st.columns(4)
-    pl_c1.metric("Turnover (Sales A/c)", f"₹{business_data['Sales']:,.2f}")
-    pl_c2.metric("Procurement (Purchase A/c)", f"₹{business_data['Purchase']:,.2f}")
+    pl_c1.metric("Gross Turnover", f"₹{business_data['Sales']:,.2f}")
+    pl_c2.metric("Procurement (COGS)", f"₹{business_data['Purchase']:,.2f}")
     pl_c3.metric("Operating Gross Profit", f"₹{gross_profit:,.2f}", delta=f"{(gross_profit / business_data['Sales'] * 100):.2f}% Margin" if business_data['Sales'] > 0 else "0%")
-    pl_c4.metric("Nett Profit", f"₹{net_profit:,.2f}", delta="Net Surplus" if net_profit >= 0 else "Net Deficit")
+    pl_c4.metric("Nett Profit", f"₹{net_profit:,.2f}", delta="Net Surplus" if net_profit >= 0 else "Deficit")
 
     st.markdown("---")
 
-    # March-Ending CA Audit Dossier
+    # CA Audit & Tax Dossier Panel
     st.markdown("### 🏛️ March-Ending CA Audit & Tax Dossier")
     ca_col1, ca_col2 = st.columns([2.2, 1.8])
     with ca_col1:
         st.markdown(f"""
             <div class="info-card">
-                <div style="font-weight: 700; font-size: 1.05rem; color: #F8FAFC; margin-bottom: 8px;">Compliance & Audit Check</div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                    <span style="color: #94A3B8;">Closing Stock Valuation:</span>
-                    <b style="color: {'#F87171' if business_data['Closing_Stock'] < 0 else '#4ADE80'};">₹{business_data['Closing_Stock']:,.2f}</b>
+                <div style="font-weight: 700; font-size: 1.1rem; color: #F8FAFC; margin-bottom: 12px; display: flex; justify-content: space-between;">
+                    <span>Audit & Statutory Checks</span>
+                    <span class="badge-chip badge-indigo">Statutory</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span style="color: #94A3B8;">Inventory Closing Valuation:</span>
+                    <b style="color: {'#FB7185' if business_data['Closing_Stock'] < 0 else '#34D399'}; font-family: 'JetBrains Mono', monospace;">₹{business_data['Closing_Stock']:,.2f}</b>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                     <span style="color: #94A3B8;">MSME 45-Day Dues (Sec 43B(h)):</span>
-                    <b style="color: {'#F87171' if business_data['MSME_Critical_Dues'] > 0 else '#34D399'};">₹{business_data['MSME_Critical_Dues']:,.2f}</b>
+                    <b style="color: {'#FB7185' if business_data['MSME_Critical_Dues'] > 0 else '#34D399'}; font-family: 'JetBrains Mono', monospace;">₹{business_data['MSME_Critical_Dues']:,.2f}</b>
                 </div>
                 <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94A3B8;">Critical Debtors Overdue (>{credit_days_threshold} Days):</span>
-                    <b>{business_data['Critical_Count']} Accounts</b>
+                    <span style="color: #94A3B8;">Debtors Exceeding Benchmark ({credit_days_threshold} Days):</span>
+                    <b style="color: #F8FAFC; font-family: 'JetBrains Mono', monospace;">{business_data['Critical_Count']} Accounts</b>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -1049,7 +1200,7 @@ if uploaded_files:
                 business_data["Stock_DF"].to_excel(writer, sheet_name="Stock_Summary", index=False)
                 
         st.download_button(
-            label="📥 Download CA Audit Dossier (.xlsx)",
+            label="📥 Download Certified CA Audit Dossier (.xlsx)",
             data=output.getvalue(),
             file_name=f"Tally_Audit_Dossier_March_{datetime.datetime.now().year}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1057,7 +1208,7 @@ if uploaded_files:
             type="primary"
         )
 
-    # Detailed Registers Tabs
+    # Detailed Sub-Ledgers
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Sales Register", 
         "📦 Purchase Register", 
@@ -1071,40 +1222,42 @@ if uploaded_files:
         if business_data["Sales_DF"] is not None:
             st.dataframe(business_data["Sales_DF"], use_container_width=True, height=400)
         else:
-            st.info("Sales Register upload hone par customer transactions load honge.")
+            st.info("Sales transactions will populate once data is uploaded.")
 
     with tab2:
         if business_data["Purchase_DF"] is not None:
             st.dataframe(business_data["Purchase_DF"], use_container_width=True, height=400)
         else:
-            st.info("Purchase Register upload hone par vendor billing load hogi.")
+            st.info("Purchase billing records will populate once data is uploaded.")
             
     with tab3:
         if business_data["Receivables_DF"] is not None:
             st.dataframe(business_data["Receivables_DF"], use_container_width=True, height=400)
         else:
-            st.info("Bills Receivable upload hone par customer dues load honge.")
+            st.info("Debtor ageing entries will populate once data is uploaded.")
 
     with tab4:
         if business_data["Payables_DF"] is not None:
             st.dataframe(business_data["Payables_DF"], use_container_width=True, height=400)
         else:
-            st.info("Bills Payable upload hone par supplier dues load honge.")
+            st.info("Creditor & MSME outstandings will populate once data is uploaded.")
 
     with tab5:
         if business_data["Stock_DF"] is not None and not business_data["Stock_DF"].empty:
             st.dataframe(business_data["Stock_DF"], use_container_width=True, height=400)
         else:
-            st.info("Stock Summary file ya Inventory-enabled Transactions.xml upload hone par stock records display honge.")
+            st.info("Stock records will display once inventory data is uploaded.")
 
     with tab6:
+        # Traditional T-Shape P&L Statement with Modern Styling
         st.markdown(f"""
-            <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px;">
-                <div style="text-align: center; margin-bottom: 18px;">
-                    <h3 style="margin: 0; font-weight: 700; color: #F8FAFC;">Profit & Loss A/c</h3>
-                    <div style="font-size: 0.85rem; color: #94A3B8;">Synchronized Trading & Profit Statement</div>
+            <div class="info-card" style="padding: 24px;">
+                <div style="text-align: center; margin-bottom: 22px;">
+                    <div class="badge-chip badge-indigo" style="margin-bottom: 6px;">Audited Statement</div>
+                    <h3 style="margin: 0; font-weight: 800; font-size: 1.45rem; color: #F8FAFC;">Trading & Profit & Loss Statement</h3>
+                    <div style="font-size: 0.85rem; color: #94A3B8; margin-top: 4px;">Synchronized with Tally ERP Ledger Balances</div>
                 </div>
-                <table class="tally-pl-table">
+                <table class="luxury-statement-table">
                     <thead>
                         <tr>
                             <th style="width: 35%;">Particulars (Debit)</th>
@@ -1116,50 +1269,50 @@ if uploaded_files:
                     <tbody>
                         <tr>
                             <td>Opening Stock</td>
-                            <td style="text-align: right;">0.00</td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">0.00</td>
                             <td>Sales Accounts</td>
-                            <td style="text-align: right; font-weight: 600;">{business_data['Sales']:,.2f}</td>
+                            <td style="text-align: right; font-weight: 600; font-family: 'JetBrains Mono', monospace;">{business_data['Sales']:,.2f}</td>
                         </tr>
                         <tr>
                             <td>Purchase Accounts</td>
-                            <td style="text-align: right; font-weight: 600;">{business_data['Purchase']:,.2f}</td>
+                            <td style="text-align: right; font-weight: 600; font-family: 'JetBrains Mono', monospace;">{business_data['Purchase']:,.2f}</td>
                             <td>Direct Incomes</td>
-                            <td style="text-align: right;">{business_data['Direct_Incomes']:,.2f}</td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">{business_data['Direct_Incomes']:,.2f}</td>
                         </tr>
                         <tr>
                             <td>Closing Stock (Negative Balance)</td>
-                            <td style="text-align: right; color: #F87171;">{abs(business_data['Closing_Stock']):,.2f}</td>
+                            <td style="text-align: right; color: #FB7185; font-family: 'JetBrains Mono', monospace;">{abs(business_data['Closing_Stock']):,.2f}</td>
                             <td>Closing Stock (If Positive)</td>
-                            <td style="text-align: right;">0.00</td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">0.00</td>
                         </tr>
                         <tr>
                             <td>Gross Profit c/o</td>
-                            <td style="text-align: right; font-weight: 700; color: #34D399;">{gross_profit:,.2f}</td>
+                            <td style="text-align: right; font-weight: 700; color: #34D399; font-family: 'JetBrains Mono', monospace;">{gross_profit:,.2f}</td>
                             <td></td>
                             <td></td>
                         </tr>
-                        <tr class="tally-total-row">
+                        <tr class="luxury-statement-total">
                             <td>Total</td>
                             <td style="text-align: right;">{business_data['Sales']:,.2f}</td>
                             <td>Total</td>
                             <td style="text-align: right;">{business_data['Sales']:,.2f}</td>
                         </tr>
                         <tr>
-                            <td colspan="4" style="height: 15px; background: transparent;"></td>
+                            <td colspan="4" style="height: 18px; background: transparent; border: none;"></td>
                         </tr>
                         <tr>
                             <td>Indirect Expenses</td>
-                            <td style="text-align: right;">{business_data['Indirect_Expenses']:,.2f}</td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">{business_data['Indirect_Expenses']:,.2f}</td>
                             <td>Gross Profit b/f</td>
-                            <td style="text-align: right; font-weight: 700; color: #34D399;">{gross_profit:,.2f}</td>
+                            <td style="text-align: right; font-weight: 700; color: #34D399; font-family: 'JetBrains Mono', monospace;">{gross_profit:,.2f}</td>
                         </tr>
                         <tr>
                             <td>Nett Profit</td>
-                            <td style="text-align: right; font-weight: 700; color: #38BDF8;">{net_profit:,.2f}</td>
+                            <td style="text-align: right; font-weight: 700; color: #38BDF8; font-family: 'JetBrains Mono', monospace;">{net_profit:,.2f}</td>
                             <td>Indirect Incomes</td>
-                            <td style="text-align: right;">{business_data['Indirect_Incomes']:,.2f}</td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">{business_data['Indirect_Incomes']:,.2f}</td>
                         </tr>
-                        <tr class="tally-total-row">
+                        <tr class="luxury-statement-total">
                             <td>Total</td>
                             <td style="text-align: right;">{gross_profit:,.2f}</td>
                             <td>Total</td>
@@ -1171,11 +1324,11 @@ if uploaded_files:
         """, unsafe_allow_html=True)
 else:
     st.markdown("""
-        <div style="text-align: center; padding: 60px 20px; border: 1px dashed rgba(255,255,255,0.15); border-radius: 18px; margin-top: 20px;">
-            <div style="font-size: 2.8rem; margin-bottom: 10px;">📊</div>
-            <h3 style="font-weight: 700;">No Financial Reports Loaded</h3>
-            <p style="color: #94A3B8; max-width: 500px; margin: auto;">
-                Sidebar uploader me Tally reports (Excel, CSV ya direct XML Transactions export) drop karein.
+        <div style="text-align: center; padding: 70px 20px; border: 1px dashed rgba(255,255,255,0.12); border-radius: 22px; margin-top: 25px; background: rgba(15, 23, 42, 0.35);">
+            <div style="font-size: 3rem; margin-bottom: 12px;">⚡</div>
+            <h3 style="font-weight: 800; font-size: 1.45rem; color: #F8FAFC;">Executive Intelligence Awaiting Data</h3>
+            <p style="color: #94A3B8; max-width: 520px; margin: auto; font-size: 0.95rem; line-height: 1.6;">
+                Drop your Tally <code>Transactions.xml</code> or audited Excel balance sheets into the sidebar to generate instant audit dossiers, inventory valuations & working capital telemetry.
             </p>
         </div>
     """, unsafe_allow_html=True)
