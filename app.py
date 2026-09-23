@@ -17,6 +17,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ----------------- ACCURATE INDIAN STANDARD TIME (IST) HELPER -----------------
+def get_ist_now():
+    # Streamlit Cloud UTC server time ko exact Indian Standard Time (UTC+5:30) me convert karta hai
+    return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
+
+def get_ist_now_str():
+    return get_ist_now().strftime("%Y-%m-%d %I:%M:%S %p")
+
 # ----------------- LUXURY FINTECH GLASSMORPHISM THEME -----------------
 st.markdown("""
     <style>
@@ -34,7 +42,6 @@ st.markdown("""
         background-attachment: fixed !important;
     }
 
-    /* Executive Top Bar */
     .executive-topbar {
         background: rgba(15, 23, 42, 0.65);
         backdrop-filter: blur(16px);
@@ -49,7 +56,6 @@ st.markdown("""
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
     }
 
-    /* Premium Metric Glass Cards */
     .metric-card {
         background: linear-gradient(135deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.7) 100%);
         backdrop-filter: blur(14px);
@@ -101,7 +107,6 @@ st.markdown("""
         gap: 6px;
     }
 
-    /* Luxury Info Panels */
     .info-card {
         background: rgba(15, 23, 42, 0.55);
         backdrop-filter: blur(12px);
@@ -112,7 +117,6 @@ st.markdown("""
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
     }
 
-    /* Chips & Badges */
     .badge-chip {
         display: inline-flex;
         align-items: center;
@@ -129,7 +133,6 @@ st.markdown("""
     .badge-rose { background: rgba(244, 63, 94, 0.15); color: #FB7185; border: 1px solid rgba(244, 63, 94, 0.3); }
     .badge-amber { background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3); }
 
-    /* Custom T-Shape Statement Table */
     .luxury-statement-table {
         width: 100%;
         border-collapse: separate;
@@ -163,7 +166,6 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace;
     }
 
-    /* WhatsApp Button Pulsing Effect */
     .whatsapp-btn {
         display: inline-block;
         background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
@@ -241,7 +243,7 @@ else:
         </script>
     """, unsafe_allow_html=True)
 
-# ----------------- DATABASE -----------------
+# ----------------- DATABASE WITH SYSTEM CONFIG -----------------
 def init_db():
     conn = sqlite3.connect("tally_users_v3.db", check_same_thread=False)
     c = conn.cursor()
@@ -258,23 +260,34 @@ def init_db():
             txn_id TEXT
         )
     """)
+    # Dynamic Pricing Config Table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS system_config (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    # Default Prices Agar Pehle Se Na Ho
+    c.execute("INSERT OR IGNORE INTO system_config (key, value) VALUES ('price_monthly', '499')")
+    c.execute("INSERT OR IGNORE INTO system_config (key, value) VALUES ('price_yearly', '2999')")
     conn.commit()
     return conn
 
 conn = init_db()
 
-def migrate_db_schema():
+def get_pricing_config():
     c = conn.cursor()
-    c.execute("PRAGMA table_info(users)")
-    cols = [r[1] for r in c.fetchall()]
-    if "phone" not in cols:
-        try:
-            c.execute("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''")
-            conn.commit()
-        except Exception:
-            pass
+    m_row = c.execute("SELECT value FROM system_config WHERE key='price_monthly'").fetchone()
+    y_row = c.execute("SELECT value FROM system_config WHERE key='price_yearly'").fetchone()
+    p_monthly = int(m_row[0]) if m_row else 499
+    p_yearly = int(y_row[0]) if y_row else 2999
+    return p_monthly, p_yearly
 
-migrate_db_schema()
+def update_pricing_config(monthly_val, yearly_val):
+    c = conn.cursor()
+    c.execute("UPDATE system_config SET value=? WHERE key='price_monthly'", (str(monthly_val),))
+    c.execute("UPDATE system_config SET value=? WHERE key='price_yearly'", (str(yearly_val),))
+    conn.commit()
 
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -293,9 +306,10 @@ def check_device_trial_exists(device_hash):
 
 def add_user(username, password, phone, role="client", status="trial", plan="Free Trial (7 Days)", device_hash="", txn_id=""):
     c = conn.cursor()
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # IST Accurate Timestamp
+    ist_time_str = get_ist_now_str()
     c.execute("INSERT OR REPLACE INTO users (username, password, phone, role, status, plan, created_at, device_hash, txn_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-              (username, hash_pw(password), phone, role, status, plan, now_str, device_hash, txn_id))
+              (username, hash_pw(password), phone, role, status, plan, ist_time_str, device_hash, txn_id))
     conn.commit()
 
 def update_user_payment(username, plan, txn_id):
@@ -309,6 +323,7 @@ def verify_user_creds(username, password):
               (username, hash_pw(password)))
     return c.fetchone()
 
+# Default Admin Setup
 c = conn.cursor()
 c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
@@ -332,7 +347,7 @@ def extract_all_from_xml(uploaded_file):
     vouchers = []
     item_stats = {}
     expense_records = []
-    current_date = datetime.date.today()
+    current_date = get_ist_now().date()
 
     for block in vch_blocks:
         v_type_m = re.search(r'<(?:VOUCHERTYPENAME|VCHTYPE)[^>]*>(.*?)</', block, re.IGNORECASE)
@@ -568,7 +583,7 @@ def generate_upi_qr(vpa, name, amount):
     img.save(buf)
     return buf.getvalue()
 
-# ----------------- AUTHENTICATION (LUXURY FINTECH UI) -----------------
+# ----------------- AUTHENTICATION -----------------
 if not st.session_state["logged_in"]:
     st.markdown("""
         <div style="text-align: center; margin-top: 50px; margin-bottom: 35px;">
@@ -636,13 +651,18 @@ if not st.session_state["logged_in"]:
                             status = usr["status"]
                             is_expired = False
                             if status == "trial":
-                                c_date = datetime.datetime.strptime(usr["created_at"], "%Y-%m-%d %H:%M:%S")
-                                if (datetime.datetime.now() - c_date).days >= 7:
-                                    is_expired = True
-                                    status = "expired"
-                                    c = conn.cursor()
-                                    c.execute("UPDATE users SET status='expired' WHERE username=?", (usr["username"],))
-                                    conn.commit()
+                                try:
+                                    # Parsing clean date
+                                    dt_clean = usr["created_at"].split()[0]
+                                    c_date = datetime.datetime.strptime(dt_clean, "%Y-%m-%d").date()
+                                    if (get_ist_now().date() - c_date).days >= 7:
+                                        is_expired = True
+                                        status = "expired"
+                                        c = conn.cursor()
+                                        c.execute("UPDATE users SET status='expired' WHERE username=?", (usr["username"],))
+                                        conn.commit()
+                                except Exception:
+                                    pass
 
                             st.session_state["logged_in"] = True
                             st.session_state["username"] = usr["username"]
@@ -694,7 +714,9 @@ if not st.session_state["logged_in"]:
             st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# ----------------- TRIAL EXPIRED SCREEN -----------------
+# ----------------- TRIAL EXPIRED SCREEN (DYNAMIC PRICING LOADED) -----------------
+current_monthly_price, current_yearly_price = get_pricing_config()
+
 if st.session_state.get("status") == "expired":
     st.markdown("""
         <div style="text-align: center; margin-top: 40px; margin-bottom: 25px;">
@@ -707,9 +729,14 @@ if st.session_state.get("status") == "expired":
     c1, c2, c3 = st.columns([1, 1.8, 1])
     with c2:
         st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-        plan_sel = st.radio("Subscription Tier:", ["Monthly License — ₹499 / Month", "Annual Enterprise — ₹2,999 / Year (Best Value)"])
-        amt = 499 if "499" in plan_sel else 2999
-        p_name = "Monthly (₹499)" if amt == 499 else "Yearly (₹2999)"
+        plan_options = [
+            f"Monthly License — ₹{current_monthly_price:,} / Month", 
+            f"Annual Enterprise — ₹{current_yearly_price:,} / Year (Best Value)"
+        ]
+        plan_sel = st.radio("Subscription Tier:", plan_options)
+        
+        amt = current_monthly_price if str(current_monthly_price) in plan_sel else current_yearly_price
+        p_name = f"Monthly (₹{amt})" if amt == current_monthly_price else f"Yearly (₹{amt})"
 
         col_q1, col_q2 = st.columns([1.2, 1])
         with col_q1:
@@ -750,8 +777,12 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     if st.session_state["status"] == "trial":
-        c_date = datetime.datetime.strptime(st.session_state.get("created_at", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")), "%Y-%m-%d %H:%M:%S")
-        days_left = max(0, 7 - (datetime.datetime.now() - c_date).days)
+        try:
+            dt_clean = st.session_state.get("created_at", "").split()[0]
+            c_date = datetime.datetime.strptime(dt_clean, "%Y-%m-%d").date()
+            days_left = max(0, 7 - (get_ist_now().date() - c_date).days)
+        except Exception:
+            days_left = 7
         st.markdown(f'<div class="badge-chip badge-amber">Trial: {days_left} Days Left</div>', unsafe_allow_html=True)
     else:
         st.markdown(f'<div class="badge-chip badge-emerald">{st.session_state.get("plan", "Enterprise Tier")}</div>', unsafe_allow_html=True)
@@ -798,13 +829,13 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
 
-# ----------------- ADMIN: USER CRM -----------------
+# ----------------- ADMIN: USER CRM + PRICING CONTROLLER (NEW FEATURES) -----------------
 if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM":
     st.markdown("""
         <div class="executive-topbar">
             <div>
                 <h2 style="font-weight: 800; margin: 0; font-size: 1.7rem;">👥 User Directory & Subscription CRM</h2>
-                <div style="color: #94A3B8; font-size: 0.88rem; margin-top: 3px;">Live customer telemetry & entitlement overrides</div>
+                <div style="color: #94A3B8; font-size: 0.88rem; margin-top: 3px;">Live customer telemetry, Accurate IST Timestamps & Pricing Control</div>
             </div>
             <div class="badge-chip badge-indigo">Admin Portal</div>
         </div>
@@ -825,17 +856,38 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
     crm4.metric("Pending / Expired", expired_u)
 
     st.markdown("---")
-    st.markdown("### 📋 Client Portfolio Master Table")
+
+    # FEATURE 1: DYNAMIC SUBSCRIPTION PRICING MANAGER
+    st.markdown("### 💰 Subscription Pricing Manager (Live Store Controller)")
+    st.caption("Admin portal se subscription rates instantly update karein. Clients ko renew screen par yahi naye rates dikhenge.")
+    
+    col_p1, col_p2, col_p3 = st.columns([1.5, 1.5, 1.2])
+    with col_p1:
+        new_monthly = st.number_input("Monthly License Price (INR ₹):", min_value=99, max_value=99999, value=current_monthly_price, step=50)
+    with col_p2:
+        new_yearly = st.number_input("Annual Enterprise Price (INR ₹):", min_value=499, max_value=499999, value=current_yearly_price, step=100)
+    with col_p3:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("Update Store Prices", type="primary", use_container_width=True):
+            update_pricing_config(new_monthly, new_yearly)
+            st.success(f"✅ Subscription rates updated: Monthly = ₹{new_monthly:,} | Yearly = ₹{new_yearly:,}")
+            st.rerun()
+
+    st.markdown("---")
+
+    # FEATURE 2: CLIENT PORTFOLIO MASTER TABLE WITH ACCURATE IST
+    st.markdown("### 📋 Client Portfolio Master Table (Indian Standard Time)")
 
     table_data = []
-    now_dt = datetime.datetime.now()
+    now_ist = get_ist_now().date()
 
     for u_name, u_ph, u_role, u_stat, u_pl, u_cr, u_tx in all_users:
         days_rem = "-"
         if u_stat == "trial":
             try:
-                c_date = datetime.datetime.strptime(u_cr, "%Y-%m-%d %H:%M:%S")
-                days_left = max(0, 7 - (now_dt - c_date).days)
+                dt_clean = u_cr.split()[0]
+                c_date = datetime.datetime.strptime(dt_clean, "%Y-%m-%d").date()
+                days_left = max(0, 7 - (now_ist - c_date).days)
                 days_rem = f"{days_left} Days Left"
             except Exception:
                 days_rem = "Active"
@@ -853,7 +905,7 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
             "Status": u_stat.upper(),
             "Plan Type": u_pl,
             "Entitlement Balance": days_rem,
-            "Registration Date": u_cr,
+            "Registration Date & Time (IST)": u_cr,
             "Bank Ref": u_tx if u_tx else "N/A"
         })
 
@@ -869,8 +921,8 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
             target_user = st.selectbox("Select Client:", non_admin_usernames)
         with col_ov2:
             new_status_action = st.selectbox("Assign Action:", [
-                "Grant Annual Enterprise (Approve)",
-                "Grant Monthly License (Approve)",
+                f"Grant Annual Enterprise (₹{current_yearly_price})",
+                f"Grant Monthly License (₹{current_monthly_price})",
                 "Reset 7-Day Free Trial",
                 "Expire / Lock Account"
             ])
@@ -878,11 +930,11 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
             if st.button("Execute Override", type="primary", use_container_width=True):
                 c = conn.cursor()
-                now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                now_str = get_ist_now_str()
                 if "Annual" in new_status_action:
-                    c.execute("UPDATE users SET status='approved', plan='Annual Enterprise (₹2,999)' WHERE username=?", (target_user,))
+                    c.execute("UPDATE users SET status='approved', plan=? WHERE username=?", (f"Annual Enterprise (₹{current_yearly_price})", target_user))
                 elif "Monthly" in new_status_action:
-                    c.execute("UPDATE users SET status='approved', plan='Monthly License (₹499)' WHERE username=?", (target_user,))
+                    c.execute("UPDATE users SET status='approved', plan=? WHERE username=?", (f"Monthly License (₹{current_monthly_price})", target_user))
                 elif "Reset" in new_status_action:
                     c.execute("UPDATE users SET status='trial', plan='Free Trial (7 Days)', created_at=? WHERE username=?", (now_str, target_user))
                 elif "Expire" in new_status_action:
@@ -1202,7 +1254,7 @@ if uploaded_files:
         st.download_button(
             label="📥 Download Certified CA Audit Dossier (.xlsx)",
             data=output.getvalue(),
-            file_name=f"Tally_Audit_Dossier_March_{datetime.datetime.now().year}.xlsx",
+            file_name=f"Tally_Audit_Dossier_March_{get_ist_now().year}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
             type="primary"
@@ -1249,7 +1301,6 @@ if uploaded_files:
             st.info("Stock records will display once inventory data is uploaded.")
 
     with tab6:
-        # Traditional T-Shape P&L Statement with Modern Styling
         st.markdown(f"""
             <div class="info-card" style="padding: 24px;">
                 <div style="text-align: center; margin-bottom: 22px;">
