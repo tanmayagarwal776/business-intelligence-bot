@@ -6,6 +6,7 @@ import hashlib
 import random
 import qrcode
 import re
+import requests
 from io import BytesIO
 from urllib.parse import quote
 
@@ -17,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ----------------- MODERN EXECUTIVE CSS THEME -----------------
+# ----------------- MODERN CSS + HIDE STREAMLIT BRANDING & GITHUB -----------------
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -29,6 +30,16 @@ st.markdown("""
     .stApp {
         background: radial-gradient(circle at 10% 20%, rgba(14, 23, 42, 0.95) 0%, rgba(15, 23, 42, 1) 90%);
     }
+
+    /* PERMANENTLY HIDE GITHUB ICON, MANAGE APP & STREAMLIT WATERMARKS */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .viewerBadge_container__1QSob {display: none !important;}
+    .viewerBadge_link__1S137 {display: none !important;}
+    [data-testid="stToolbar"] {display: none !important;}
+    [data-testid="manage-app-button"] {display: none !important;}
+    div[class*="ProfileBadge"] {display: none !important;}
 
     .metric-card {
         background: rgba(30, 41, 59, 0.7);
@@ -121,6 +132,30 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+# ----------------- FAST2SMS GATEWAY INTEGRATION -----------------
+# Yahan apni Fast2SMS API key paste karein agar direct SIM par bhejna ho
+FAST2SMS_API_KEY = ""
+
+def send_real_mobile_otp(phone_number, otp_code):
+    if not FAST2SMS_API_KEY:
+        return False, "DEMO_MODE"
+    try:
+        url = "https://www.fast2sms.com/dev/bulkV2"
+        headers = {'authorization': FAST2SMS_API_KEY}
+        payload = {
+            'variables_values': str(otp_code),
+            'route': 'otp',
+            'numbers': str(phone_number)
+        }
+        res = requests.post(url, data=payload, headers=headers, timeout=6)
+        json_data = res.json()
+        if json_data.get('return'):
+            return True, "SMS_SENT"
+        else:
+            return False, json_data.get('message', 'SMS Gateway Error')
+    except Exception as e:
+        return False, str(e)
 
 # ----------------- DATABASE INITIALIZATION WITH PHONE -----------------
 def init_db():
@@ -453,6 +488,7 @@ if "logged_in" not in st.session_state:
     st.session_state["otp_sent"] = False
     st.session_state["generated_otp"] = ""
     st.session_state["temp_user"] = None
+    st.session_state["sms_mode"] = ""
 
 def generate_upi_qr(vpa, name, amount):
     upi_url = f"upi://pay?pa={vpa}&pn={quote(name)}&am={amount}&cu=INR"
@@ -498,13 +534,21 @@ if not st.session_state["logged_in"]:
                                 "username": u, "phone": phone, "role": role, 
                                 "status": status, "plan": plan, "created_at": created_at
                             }
+                            # Send real SMS
+                            sent, mode = send_real_mobile_otp(phone.strip(), otp)
+                            st.session_state["sms_mode"] = mode
                             st.rerun()
                         else:
                             st.error("Invalid username or password.")
                     else:
                         st.error("Please provide valid username, password and 10-digit phone number.")
             else:
-                st.success(f"📲 Security OTP generated for {phone}: **`{st.session_state['generated_otp']}`**")
+                if st.session_state.get("sms_mode") == "SMS_SENT":
+                    st.success(f"📲 6-Digit OTP sent successfully to your mobile: +91 {phone[-10:]} via SMS!")
+                else:
+                    # In demo mode if SMS key is blank
+                    st.info(f"📲 SMS Mode [Test Gateway]: OTP is **`{st.session_state['generated_otp']}`**")
+
                 entered_otp = st.text_input("Enter 6-Digit OTP Received", placeholder="••••••")
                 col_sub1, col_sub2 = st.columns(2)
                 with col_sub1:
@@ -550,7 +594,7 @@ if not st.session_state["logged_in"]:
             st.markdown("<div class='info-card'>", unsafe_allow_html=True)
             new_u = st.text_input("Choose Username", placeholder="e.g. industrial_trade")
             new_p = st.text_input("Choose Password", type="password", placeholder="••••••••")
-            new_phone = st.text_input("Mobile Number (For OTP Login)", placeholder="10-digit mobile number")
+            new_phone = st.text_input("Mobile Number (For SMS OTP)", placeholder="10-digit mobile number")
             
             st.caption("🔒 7-day full access included. Verified Mobile Security.")
             if st.button("Register & Activate Trial", use_container_width=True, type="primary"):
@@ -676,7 +720,7 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
 
-# ----------------- ADMIN: USER CRM & SUBSCRIPTION MANAGER (NEW FEATURE) -----------------
+# ----------------- ADMIN: USER CRM & SUBSCRIPTION MANAGER -----------------
 if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM":
     st.markdown("""
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
