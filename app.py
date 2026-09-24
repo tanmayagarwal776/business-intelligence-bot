@@ -44,7 +44,6 @@ st.markdown("""
     .executive-topbar {
         background: rgba(15, 23, 42, 0.65);
         backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 18px;
         padding: 16px 24px;
@@ -317,7 +316,7 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")[cite: 14]
 
-# ----------------- ADVANCED TALLY PARSER & FIFO KNOCKOFF ENGINE -----------------
+# ----------------- MULTI-VOUCHER (RECEIPT, JOURNAL, PAYMENT) RECONCILIATION ENGINE -----------------
 def extract_all_from_xml(uploaded_file):
     uploaded_file.seek(0)
     raw_content = uploaded_file.read()
@@ -330,9 +329,6 @@ def extract_all_from_xml(uploaded_file):
             continue
     else:
         content_str = raw_content.decode('latin-1', errors='replace')
-
-    # Agar file Tally ka "Bills Outstanding / Bills Receivable" export hai
-    is_bills_receivable_report = "BILLCL" in content_str or "BILLDUE" in content_str
 
     vch_blocks = re.findall(r'<VOUCHER\b[^>]*>(.*?)</VOUCHER>', content_str, re.DOTALL | re.IGNORECASE)
     vouchers = []
@@ -364,6 +360,19 @@ def extract_all_from_xml(uploaded_file):
             except Exception:
                 pass
 
+        # Multi-Ledger Entries (Debit / Credit Analysis for Journal, Payment, Receipt)
+        led_entries = re.findall(r'<ALLLEDGERENTRIES\.LIST\b[^>]*>(.*?)</ALLLEDGERENTRIES\.LIST>', block, re.DOTALL | re.IGNORECASE)
+        ledger_splits = []
+        for le in led_entries:
+            ln_m = re.search(r'<LEDGERNAME[^>]*>(.*?)</', le, re.IGNORECASE)
+            la_m = re.search(r'<AMOUNT[^>]*>\s*([+-]?\d+(?:\.\d+)?)\s*</', le, re.IGNORECASE)
+            if ln_m and la_m:
+                lname = ln_m.group(1).strip()
+                lname = re.sub(r'&amp;', '&', lname)
+                lname = re.sub(r'&#[0-9xX]+;', '', lname)
+                lamt = float(la_m.group(1))
+                ledger_splits.append({"ledger": lname, "amount": lamt})
+
         amt_matches = re.findall(r'<(?:AMOUNT|PAIDAMOUNT)[^>]*>\s*([+-]?\d+(?:\.\d+)?)\s*</', block, re.IGNORECASE)
         max_amt = 0.0
         for am in amt_matches:
@@ -381,7 +390,8 @@ def extract_all_from_xml(uploaded_file):
                 "Vch No.": v_no,
                 "Party Name": p_name,
                 "Amount": max_amt,
-                "Days_Overdue": days_old
+                "Days_Overdue": days_old,
+                "Splits": ledger_splits
             })
 
         is_purchase = any(x in v_type.lower() for x in ["purchase", "receipt note"])
@@ -429,22 +439,16 @@ def extract_all_from_xml(uploaded_file):
                     item_stats[it_name]["purch_qty"] += num_qty
                     item_stats[it_name]["purch_val"] += it_amt
 
-        led_blocks = re.findall(r'<ALLLEDGERENTRIES\.LIST\b[^>]*>(.*?)</ALLLEDGERENTRIES\.LIST>', block, re.DOTALL | re.IGNORECASE)
-        for lb in led_blocks:
-            led_name_m = re.search(r'<LEDGERNAME[^>]*>(.*?)</', lb, re.IGNORECASE)
-            led_amt_m = re.search(r'<AMOUNT[^>]*>\s*([+-]?\d+(?:\.\d+)?)\s*</', lb, re.IGNORECASE)
-            if led_name_m and led_amt_m:
-                lname = led_name_m.group(1).strip()
-                lamt = abs(float(led_amt_m.group(1)))
-                l_low = lname.lower()
-                if any(k in l_low for k in ["freight", "cartage", "carriage", "wages", "salary", "rent", "interest", "commission", "discount", "office", "expense", "audit", "electric", "telephone", "fuel"]):
-                    expense_records.append({
-                        "Date": v_date_clean,
-                        "Particulars": lname,
-                        "Vch Type": v_type,
-                        "Vch No.": v_no,
-                        "Amount": lamt
-                    })
+        for spl in ledger_splits:
+            l_low = spl["ledger"].lower()
+            if any(k in l_low for k in ["freight", "cartage", "carriage", "wages", "salary", "rent", "interest", "commission", "discount", "office", "expense", "audit", "electric", "telephone", "fuel"]):
+                expense_records.append({
+                    "Date": v_date_clean,
+                    "Particulars": spl["ledger"],
+                    "Vch Type": v_type,
+                    "Vch No.": v_no,
+                    "Amount": abs(spl["amount"])
+                })
 
     stock_summary_rows = []
     for it_k, it_v in item_stats.items():
@@ -468,7 +472,6 @@ def extract_all_from_xml(uploaded_file):
     exp_df = pd.DataFrame(expense_records) if expense_records else pd.DataFrame()
     return vch_df, stk_df, exp_df
 
-# ----------------- TALLY BILLS RECEIVABLE (EXCEL / CSV) PARSER -----------------
 def load_tally_file(uploaded_file):
     fname = uploaded_file.name.lower()
     if fname.endswith('.xml'):
@@ -794,7 +797,7 @@ with st.sidebar:
         max_value=180, 
         value=45, 
         step=5,
-        help="Standard credit days setting."
+        help="Standard credit limit days setting."
     )
 
     st.markdown("---")
@@ -1001,7 +1004,6 @@ if uploaded_files:
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
-        # Agar user ne direct Tally "Bills Receivable" report upload kiya hai:
         if "receiv" in fname or "bill" in fname or "outstand" in fname:
             excel_receivable_accumulator.append(fdf)
 
@@ -1027,9 +1029,27 @@ if uploaded_files:
                 msme_overdue_xml = py_rows[py_rows["Days_Overdue"] >= 45]
                 business_data["MSME_Critical_Dues"] += msme_overdue_xml["Amount"].sum()
 
-            # ----------------- TRUE FIFO BILL-BY-BILL SETTLEMENT ENGINE -----------------
-            rcpt_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("receipt", na=False)]
-            rcpt_by_party = rcpt_rows.groupby("Party Name")["Amount"].sum() if not rcpt_rows.empty else pd.Series(dtype=float)
+            # ----------------- ADVANCED DEBIT-CREDIT SETTLEMENT ANALYSIS -----------------
+            # Track all credits across Receipt, Journal, Contra, and Credit Notes
+            party_credits = {}
+            for _, vch in fdf.iterrows():
+                v_low = str(vch.get("Vch Type", "")).lower()
+                splits = vch.get("Splits", [])
+                
+                # Agar Journal, Receipt, ya Credit Note me party credit hui hai
+                for sp in splits:
+                    p_k = sp["ledger"]
+                    amt = sp["amount"]
+                    # Tally me credit negative ya credit entry ke roop me hoti hai
+                    if amt < 0 or any(k in v_low for k in ["receipt", "journal", "credit note"]):
+                        c_val = abs(amt)
+                        party_credits[p_k] = party_credits.get(p_k, 0.0) + c_val
+
+                # Fallback: Agar splits empty ho to direct party credit lo
+                if not splits and any(k in v_low for k in ["receipt", "journal", "credit note"]):
+                    p_main = vch.get("Party Name", "")
+                    if p_main:
+                        party_credits[p_main] = party_credits.get(p_main, 0.0) + float(vch.get("Amount", 0.0))
 
             fifo_pending_bills = []
             grouped_sales = s_rows.groupby("Party Name")
@@ -1038,19 +1058,18 @@ if uploaded_files:
                 if any(k in party.lower() for k in ["bank", "cash", "gst", "tds", "round", "interest", "sales", "purchase"]):
                     continue
 
-                total_receipts = float(rcpt_by_party.get(party, 0.0))
+                total_credits = float(party_credits.get(party, 0.0))
                 sorted_bills = p_sales.sort_values(by="Date", ascending=True)
 
-                # FIFO Knockoff: Pehle ke saare bills ko receipt se minus karte jao
-                unpaid_amount_for_bills = total_receipts
+                unpaid_bucket = total_credits
 
                 for _, bill in sorted_bills.iterrows():
                     b_amt = float(bill["Amount"])
-                    if unpaid_amount_for_bills >= b_amt:
-                        unpaid_amount_for_bills -= b_amt
+                    if unpaid_bucket >= b_amt:
+                        unpaid_bucket -= b_amt
                     else:
-                        remaining_due = b_amt - unpaid_amount_for_bills
-                        unpaid_amount_for_bills = 0.0
+                        remaining_due = b_amt - unpaid_bucket
+                        unpaid_bucket = 0.0
                         if remaining_due > 10.0:
                             fifo_pending_bills.append({
                                 "Party Name": party,
@@ -1096,7 +1115,6 @@ if uploaded_files:
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
 
-    # Agar user ne specific Tally "Bills Receivable" report upload ki hai, to use 100% priority do!
     if excel_receivable_accumulator:
         rec_excel = pd.concat(excel_receivable_accumulator, ignore_index=True)
         rec_clean_rows = []
@@ -1385,7 +1403,6 @@ if uploaded_files:
             st.info("Purchase billing records will populate once data is uploaded.")
             
     with tab3:
-        # ----------------- TRUE BILLS RECEIVABLE TABLE -----------------
         if business_data["Receivables_DF"] is not None and not business_data["Receivables_DF"].empty:
             r_df = business_data["Receivables_DF"].copy()
 
