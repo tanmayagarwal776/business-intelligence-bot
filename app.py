@@ -159,18 +159,6 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace;
     }
 
-    .whatsapp-btn {
-        display: inline-block;
-        background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
-        color: #FFFFFF !important;
-        text-align: center;
-        padding: 13px 20px;
-        border-radius: 12px;
-        font-weight: 700;
-        font-size: 0.95rem;
-        text-decoration: none;
-    }
-
     .whatsapp-chase-badge {
         background: rgba(37, 211, 102, 0.15);
         color: #4ADE80 !important;
@@ -329,7 +317,7 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")[cite: 14]
 
-# ----------------- TRUE TALLY INVENTORY & RECONCILED LEDGER ENGINE -----------------
+# ----------------- ADVANCED TALLY PARSER & FIFO KNOCKOFF ENGINE -----------------
 def extract_all_from_xml(uploaded_file):
     uploaded_file.seek(0)
     raw_content = uploaded_file.read()
@@ -342,6 +330,9 @@ def extract_all_from_xml(uploaded_file):
             continue
     else:
         content_str = raw_content.decode('latin-1', errors='replace')
+
+    # Agar file Tally ka "Bills Outstanding / Bills Receivable" export hai
+    is_bills_receivable_report = "BILLCL" in content_str or "BILLDUE" in content_str
 
     vch_blocks = re.findall(r'<VOUCHER\b[^>]*>(.*?)</VOUCHER>', content_str, re.DOTALL | re.IGNORECASE)
     vouchers = []
@@ -477,6 +468,7 @@ def extract_all_from_xml(uploaded_file):
     exp_df = pd.DataFrame(expense_records) if expense_records else pd.DataFrame()
     return vch_df, stk_df, exp_df
 
+# ----------------- TALLY BILLS RECEIVABLE (EXCEL / CSV) PARSER -----------------
 def load_tally_file(uploaded_file):
     fname = uploaded_file.name.lower()
     if fname.endswith('.xml'):
@@ -525,7 +517,9 @@ def load_tally_file(uploaded_file):
         c_low = str(col).lower()
         if "party" in c_low or "particular" in c_low or "customer" in c_low or "ledger" in c_low or "item" in c_low:
             col_rename[col] = "Party Name"
-        elif "pending" in c_low or "amount" in c_low or "balance" in c_low or "debit" in c_low or "credit" in c_low or "value" in c_low:
+        elif "pending" in c_low or "balance" in c_low:
+            col_rename[col] = "Pending_Amount"
+        elif "amount" in c_low or "debit" in c_low or "credit" in c_low or "value" in c_low:
             col_rename[col] = "Amount"
         elif "overdue" in c_low or "days" in c_low:
             col_rename[col] = "Days_Overdue"
@@ -542,15 +536,13 @@ def load_tally_file(uploaded_file):
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
 
-    amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
-    for ac in amt_cols:
-        df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
-
-    if "Amount_1" in df.columns:
-        if "Amount" not in df.columns or df["Amount"].sum() == 0:
-            df["Amount"] = df["Amount_1"]
-        elif df["Amount_1"].sum() > 0 and df["Amount"].sum() > 0:
-            df["Amount"] = df.apply(lambda r: r["Amount_1"] if r["Amount"] == 0 else r["Amount"], axis=1)
+    if "Pending_Amount" in df.columns:
+        df["Pending_Amount"] = pd.to_numeric(df["Pending_Amount"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
+        df["Amount"] = df["Pending_Amount"]
+    else:
+        amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
+        for ac in amt_cols:
+            df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
 
     if "Days_Overdue" in df.columns:
         df["Days_Overdue"] = pd.to_numeric(df["Days_Overdue"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
@@ -567,8 +559,6 @@ def load_tally_file(uploaded_file):
         valid_vch = df["Vch No."].notna() & (~df["Vch No."].astype(str).str.lower().isin(['none', 'nan', '', '0']))
         valid_date = df["Date"].notna() & (~df["Date"].astype(str).str.lower().isin(['none', 'nan', '', '0']))
         df = df[valid_vch | valid_date]
-    elif "Date" in df.columns:
-        df = df[df["Date"].notna() & (~df["Date"].astype(str).str.lower().isin(['none', 'nan', '']))]
 
     df = df.reset_index(drop=True)
     return df, pd.DataFrame(), pd.DataFrame()
@@ -802,9 +792,9 @@ with st.sidebar:
         "Debtor Credit Limit (Days)", 
         min_value=15, 
         max_value=180, 
-        value=65, 
+        value=45, 
         step=5,
-        help="Standard credit days setting (Salt Industry benchmark: 65 Days)."
+        help="Standard credit days setting."
     )
 
     st.markdown("---")
@@ -813,7 +803,7 @@ with st.sidebar:
         "Upload Tally Files (.xml, .xlsx, .csv)",
         type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
-        help="Drop your direct Tally Transactions.xml or stock ledger exports."
+        help="Transactions.xml ya Tally Bills Receivable export upload karein."
     )
 
     st.markdown("---")
@@ -994,6 +984,7 @@ if uploaded_files:
 
     xml_stock_accumulator = []
     xml_expense_accumulator = []
+    excel_receivable_accumulator = []
 
     for f in uploaded_files:
         fdf, s_df, e_df = load_tally_file(f)
@@ -1010,8 +1001,11 @@ if uploaded_files:
         if "Vch Type" in fdf.columns:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
+        # Agar user ne direct Tally "Bills Receivable" report upload kiya hai:
+        if "receiv" in fname or "bill" in fname or "outstand" in fname:
+            excel_receivable_accumulator.append(fdf)
+
         if fname.endswith('.xml'):
-            # Sales Vouchers (Debit)
             s_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
             if not s_rows.empty:
                 business_data["Sales_DF"] = s_rows
@@ -1021,13 +1015,11 @@ if uploaded_files:
                     business_data["Top_Customer"] = top_c.index[0]
                     business_data["Top_Customer_Amt"] = top_c.iloc[0]
 
-            # Purchase Vouchers (Credit)
             p_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("purchase|purch", na=False)]
             if not p_rows.empty:
                 business_data["Purchase_DF"] = p_rows
                 business_data["Purchase"] += p_rows["Amount"].sum()
 
-            # Payments Made to Vendors
             py_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("payment|payab", na=False)]
             if not py_rows.empty:
                 business_data["Payables_DF"] = py_rows
@@ -1035,55 +1027,47 @@ if uploaded_files:
                 msme_overdue_xml = py_rows[py_rows["Days_Overdue"] >= 45]
                 business_data["MSME_Critical_Dues"] += msme_overdue_xml["Amount"].sum()
 
-            # ----------------- TRUE DEBTOR RECONCILIATION ENGINE -----------------
-            # Party Balance = (Total Sales Billed) MINUS (Total Receipts Received)
+            # ----------------- TRUE FIFO BILL-BY-BILL SETTLEMENT ENGINE -----------------
             rcpt_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("receipt", na=False)]
-            
-            sales_by_party = s_rows.groupby("Party Name")["Amount"].sum() if not s_rows.empty else pd.Series(dtype=float)
             rcpt_by_party = rcpt_rows.groupby("Party Name")["Amount"].sum() if not rcpt_rows.empty else pd.Series(dtype=float)
 
-            reconciled_debtors = []
-            all_parties = set(sales_by_party.index).union(set(rcpt_by_party.index))
+            fifo_pending_bills = []
+            grouped_sales = s_rows.groupby("Party Name")
 
-            for party in all_parties:
-                # Bank / Internal transfers ko party se filter karein
+            for party, p_sales in grouped_sales:
                 if any(k in party.lower() for k in ["bank", "cash", "gst", "tds", "round", "interest", "sales", "purchase"]):
                     continue
-                    
-                total_billed = float(sales_by_party.get(party, 0.0))
-                total_paid = float(rcpt_by_party.get(party, 0.0))
-                net_due = total_billed - total_paid
 
-                # Agar payment completely settled hai (Balance <= 10 INR difference) to overdue se hatayein!
-                if net_due > 10.0:
-                    party_sales_vchs = s_rows[s_rows["Party Name"] == party]
-                    max_days = party_sales_vchs["Days_Overdue"].max() if not party_sales_vchs.empty else 0
-                    last_vch = party_sales_vchs["Vch No."].iloc[-1] if not party_sales_vchs.empty else "BILL"
-                    last_date = party_sales_vchs["Date"].iloc[-1] if not party_sales_vchs.empty else str(get_ist_now().date())
+                total_receipts = float(rcpt_by_party.get(party, 0.0))
+                sorted_bills = p_sales.sort_values(by="Date", ascending=True)
 
-                    reconciled_debtors.append({
-                        "Party Name": party,
-                        "Net Outstanding Due (₹)": net_due,
-                        "Total Billed (₹)": total_billed,
-                        "Total Paid (₹)": total_paid,
-                        "Last Bill Date": last_date,
-                        "Ref Invoice": last_vch,
-                        "Days Overdue": max_days
-                    })
+                # FIFO Knockoff: Pehle ke saare bills ko receipt se minus karte jao
+                unpaid_amount_for_bills = total_receipts
 
-            if reconciled_debtors:
-                rec_df = pd.DataFrame(reconciled_debtors)
-                business_data["Receivables_DF"] = rec_df
-                business_data["Outstanding"] = rec_df["Net Outstanding Due (₹)"].sum()
+                for _, bill in sorted_bills.iterrows():
+                    b_amt = float(bill["Amount"])
+                    if unpaid_amount_for_bills >= b_amt:
+                        unpaid_amount_for_bills -= b_amt
+                    else:
+                        remaining_due = b_amt - unpaid_amount_for_bills
+                        unpaid_amount_for_bills = 0.0
+                        if remaining_due > 10.0:
+                            fifo_pending_bills.append({
+                                "Party Name": party,
+                                "Pending Amount (₹)": remaining_due,
+                                "Bill Date": bill["Date"],
+                                "Ref Invoice": bill["Vch No."],
+                                "Days Overdue": bill["Days_Overdue"]
+                            })
+
+            if fifo_pending_bills:
+                fifo_df = pd.DataFrame(fifo_pending_bills)
+                business_data["Receivables_DF"] = fifo_df
+                business_data["Outstanding"] = fifo_df["Pending Amount (₹)"].sum()
                 
-                overdue_rec = rec_df[rec_df["Days Overdue"] >= credit_days_threshold]
-                business_data["Overdue"] = overdue_rec["Net Outstanding Due (₹)"].sum()
-                business_data["Critical_Count"] = len(overdue_rec)
-            else:
-                business_data["Receivables_DF"] = pd.DataFrame()
-                business_data["Outstanding"] = 0.0
-                business_data["Overdue"] = 0.0
-                business_data["Critical_Count"] = 0
+                overdue_fifo = fifo_df[fifo_df["Days Overdue"] >= credit_days_threshold]
+                business_data["Overdue"] = overdue_fifo["Pending Amount (₹)"].sum()
+                business_data["Critical_Count"] = len(overdue_fifo)
 
         elif "stock" in fname or "inventory" in fname:
             business_data["Stock_DF"] = fdf
@@ -1108,16 +1092,32 @@ if uploaded_files:
             business_data["Sales_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Sales"] += fdf["Amount"].sum()
-            if "Party Name" in fdf.columns and not fdf.empty:
-                valid_parties = fdf[~fdf["Party Name"].str.lower().isin(['total', '', 'nan', 'none'])]
-                if not valid_parties.empty and "Amount" in valid_parties.columns:
-                    top_c = valid_parties.groupby("Party Name")["Amount"].sum().sort_values(ascending=False)
-                    if not top_c.empty:
-                        business_data["Top_Customer"] = top_c.index[0]
-                        business_data["Top_Customer_Amt"] = top_c.iloc[0]
 
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
+
+    # Agar user ne specific Tally "Bills Receivable" report upload ki hai, to use 100% priority do!
+    if excel_receivable_accumulator:
+        rec_excel = pd.concat(excel_receivable_accumulator, ignore_index=True)
+        rec_clean_rows = []
+        for _, rx in rec_excel.iterrows():
+            p_val = float(rx.get("Pending_Amount", rx.get("Amount", 0.0)))
+            d_val = float(rx.get("Days_Overdue", 0))
+            if p_val > 5.0:
+                rec_clean_rows.append({
+                    "Party Name": str(rx.get("Party Name", "Party")),
+                    "Pending Amount (₹)": p_val,
+                    "Bill Date": str(rx.get("Date", "")),
+                    "Ref Invoice": str(rx.get("Vch No.", "")),
+                    "Days Overdue": int(d_val)
+                })
+        if rec_clean_rows:
+            direct_rec_df = pd.DataFrame(rec_clean_rows)
+            business_data["Receivables_DF"] = direct_rec_df
+            business_data["Outstanding"] = direct_rec_df["Pending Amount (₹)"].sum()
+            ov_dir = direct_rec_df[direct_rec_df["Days Overdue"] >= credit_days_threshold]
+            business_data["Overdue"] = ov_dir["Pending Amount (₹)"].sum()
+            business_data["Critical_Count"] = len(ov_dir)
 
     if business_data["Stock_DF"] is None and xml_stock_accumulator:
         consolidated_stk = pd.concat(xml_stock_accumulator, ignore_index=True)
@@ -1138,7 +1138,7 @@ if uploaded_files:
     gross_profit = (business_data["Sales"] + business_data["Direct_Incomes"] + business_data["Closing_Stock"]) - (business_data["Purchase"] + business_data["Direct_Expenses"])
     net_profit = (gross_profit + business_data["Indirect_Incomes"]) - business_data["Indirect_Expenses"]
 
-    # ----------------- ADVANCED AI HEALTH SCORE & RISK CALCULATOR -----------------
+    # ----------------- AI RADAR -----------------
     health_score = 100
     risk_warnings = []
     
@@ -1146,7 +1146,7 @@ if uploaded_files:
         overdue_ratio = (business_data["Overdue"] / business_data["Outstanding"]) * 100
         if overdue_ratio > 40:
             health_score -= 25
-            risk_warnings.append(f"⚠️ **Debtor Illiquidity Alert**: {overdue_ratio:.1f}% of total net receivables are past due limits! Immediate cash flow impact predicted.")
+            risk_warnings.append(f"⚠️ **Debtor Illiquidity Alert**: {overdue_ratio:.1f}% of pending receivables exceed credit limit!")
         elif overdue_ratio > 20:
             health_score -= 10
             risk_warnings.append(f"⚡ **Debtor Delay Warning**: {overdue_ratio:.1f}% receivables overdue.")
@@ -1155,18 +1155,16 @@ if uploaded_files:
         cust_conc = (business_data["Top_Customer_Amt"] / business_data["Sales"]) * 100
         if cust_conc > 35:
             health_score -= 20
-            risk_warnings.append(f"🚨 **High Concentration Risk**: `{business_data['Top_Customer']}` drives {cust_conc:.1f}% of entire business revenue!")
-        elif cust_conc > 25:
-            health_score -= 10
+            risk_warnings.append(f"🚨 **High Concentration Risk**: `{business_data['Top_Customer']}` drives {cust_conc:.1f}% of total sales!")
 
     if business_data["Payables"] > business_data["Outstanding"] and business_data["Outstanding"] > 0:
         health_score -= 15
         diff = business_data["Payables"] - business_data["Outstanding"]
-        risk_warnings.append(f"🛑 **Working Capital Deficit**: Supplier payables exceed customer debtor receivables by ₹{diff:,.2f}.")
+        risk_warnings.append(f"🛑 **Working Capital Deficit**: Supplier payables exceed customer receivables by ₹{diff:,.2f}.")
 
     if business_data["MSME_Critical_Dues"] > 0:
         health_score -= 15
-        risk_warnings.append(f"⚖️ **MSME Section 43B(h) Risk**: Overdue vendor dues of ₹{business_data['MSME_Critical_Dues']:,.2f} exceeding 45 days face disallowance & tax interest.")
+        risk_warnings.append(f"⚖️ **MSME Section 43B(h) Risk**: Overdue vendor dues of ₹{business_data['MSME_Critical_Dues']:,.2f} exceeding 45 days.")
 
     health_score = max(10, min(100, health_score))
     
@@ -1183,7 +1181,6 @@ if uploaded_files:
         health_badge = "badge-rose"
         health_color = "#FB7185"
 
-    # Luxury Top Financial Banner
     st.markdown(f"""
         <div class="executive-topbar">
             <div>
@@ -1198,7 +1195,6 @@ if uploaded_files:
         </div>
     """, unsafe_allow_html=True)
 
-    # AI RADAR
     st.markdown(f"""
         <div class="ai-radar-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -1218,7 +1214,7 @@ if uploaded_files:
                     {health_score}<span style="font-size: 1.2rem; color: #64748B;"> / 100</span>
                 </div>
                 <div style="color: #94A3B8; font-size: 0.9rem;">
-                    Health Composite: Based on cash lockup, MSME compliance, turnover spread & payable liabilities.
+                    Health Composite: Evaluated against unpaid bills, MSME liabilities & debtor cash lockup.
                 </div>
             </div>
         </div>
@@ -1246,22 +1242,22 @@ if uploaded_files:
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">
-                    <span>Actual Debtor Book</span>
-                    <span class="badge-chip badge-indigo">Net Dues</span>
+                    <span>Actual Debtor Dues</span>
+                    <span class="badge-chip badge-indigo">Pending Bills</span>
                 </div>
                 <div class="metric-val">₹{business_data['Outstanding']:,.2f}</div>
-                <div class="metric-sub" style="color: #818CF8;">● Reconciled Outstanding (Debit - Credit)</div>
+                <div class="metric-sub" style="color: #818CF8;">● Real Unpaid Receivables</div>
             </div>
         """, unsafe_allow_html=True)
     with k3:
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">
-                    <span>Actual Overdue Risk</span>
+                    <span>Real Overdue Dues</span>
                     <span class="badge-chip badge-rose">{credit_days_threshold}+ Days</span>
                 </div>
                 <div class="metric-val" style="color: #FB7185;">₹{business_data['Overdue']:,.2f}</div>
-                <div class="metric-sub" style="color: #FB7185;">● Real Unpaid Cash Lockup</div>
+                <div class="metric-sub" style="color: #FB7185;">● Cash Lockup</div>
             </div>
         """, unsafe_allow_html=True)
     with k4:
@@ -1291,10 +1287,10 @@ if uploaded_files:
         st.markdown(f"""
             <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <div style="font-size: 0.76rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Real Debtor Risk ({credit_days_threshold}+ Days)</div>
-                    <div style="font-size: 1.35rem; font-weight: 800; color: #FB7185; margin-top: 3px;">{business_data['Critical_Count']} Overdue Accounts</div>
+                    <div style="font-size: 0.76rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Critical Overdue Bills</div>
+                    <div style="font-size: 1.35rem; font-weight: 800; color: #FB7185; margin-top: 3px;">{business_data['Critical_Count']} Bills Exceeded {credit_days_threshold} Days</div>
                 </div>
-                <div class="badge-chip badge-rose">Net Pending Only</div>
+                <div class="badge-chip badge-rose">Real Overdues</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -1327,8 +1323,8 @@ if uploaded_files:
                     <b style="color: {'#FB7185' if business_data['MSME_Critical_Dues'] > 0 else '#34D399'}; font-family: 'JetBrains Mono', monospace;">₹{business_data['MSME_Critical_Dues']:,.2f}</b>
                 </div>
                 <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94A3B8;">Debtors Exceeding Benchmark ({credit_days_threshold} Days):</span>
-                    <b style="color: #F8FAFC; font-family: 'JetBrains Mono', monospace;">{business_data['Critical_Count']} Accounts</b>
+                    <span style="color: #94A3B8;">Critical Debtors Overdue (>{credit_days_threshold} Days):</span>
+                    <b style="color: #F8FAFC; font-family: 'JetBrains Mono', monospace;">{business_data['Critical_Count']} Invoices</b>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -1341,7 +1337,7 @@ if uploaded_files:
             {"Audit Metric": "Direct Expenses", "Amount (INR)": business_data["Direct_Expenses"]},
             {"Audit Metric": "Indirect Expenses", "Amount (INR)": business_data["Indirect_Expenses"]},
             {"Audit Metric": "Nett Profit", "Amount (INR)": net_profit},
-            {"Audit Metric": "Actual Sundry Debtors (Reconciled Net Dues)", "Amount (INR)": business_data["Outstanding"]},
+            {"Audit Metric": "Actual Sundry Debtors (Unpaid Bills Only)", "Amount (INR)": business_data["Outstanding"]},
             {"Audit Metric": "Actual Overdue Risk Portfolio", "Amount (INR)": business_data["Overdue"]},
             {"Audit Metric": "Total Sundry Creditors (Payables)", "Amount (INR)": business_data["Payables"]},
             {"Audit Metric": "MSME Overdue Payables (>45 Days - Sec 43Bh)", "Amount (INR)": business_data["MSME_Critical_Dues"]}
@@ -1370,7 +1366,7 @@ if uploaded_files:
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Sales Register", 
         "📦 Purchase Register", 
-        "⚠️ Reconciled Receivables & WhatsApp Recovery", 
+        "⚠️ Bills Receivable & WhatsApp Recovery", 
         "🏢 Payables (Creditors & MSME)",
         "📋 Stock Summary",
         "⚖️ Profit & Loss A/c"
@@ -1389,16 +1385,15 @@ if uploaded_files:
             st.info("Purchase billing records will populate once data is uploaded.")
             
     with tab3:
-        # ----------------- TRUE RECONCILED DEBTORS TABLE -----------------
+        # ----------------- TRUE BILLS RECEIVABLE TABLE -----------------
         if business_data["Receivables_DF"] is not None and not business_data["Receivables_DF"].empty:
             r_df = business_data["Receivables_DF"].copy()
 
-            # Overdue Dues Center (Only positive pending balances)
             overdue_only = r_df[r_df["Days Overdue"] >= credit_days_threshold]
             if not overdue_only.empty:
                 st.markdown(f"""
                     <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: 12px; padding: 14px 18px; margin-bottom: 15px;">
-                        <b style="color: #FB7185;">Critical Overdue Action Center:</b> {len(overdue_only)} debtors have genuine unpaid dues exceeding {credit_days_threshold} days. (Settled parties like JAY SALT auto-removed).
+                        <b style="color: #FB7185;">Critical Overdue Bills:</b> {len(overdue_only)} unpaid invoices have exceeded {credit_days_threshold} days credit period.
                     </div>
                 """, unsafe_allow_html=True)
 
@@ -1406,21 +1401,21 @@ if uploaded_files:
                 with col_wa1:
                     selected_party = st.selectbox("Select Overdue Debtor to Dispatch Notice:", overdue_only["Party Name"].unique(), key="chase_party_sel")
                 
-                party_row = overdue_only[overdue_only["Party Name"] == selected_party].iloc[0]
-                total_party_due = party_row["Net Outstanding Due (₹)"]
-                max_days = party_row["Days Overdue"]
-                first_vch = party_row["Ref Invoice"]
+                party_bills = overdue_only[overdue_only["Party Name"] == selected_party]
+                total_party_due = party_bills["Pending Amount (₹)"].sum()
+                max_days = party_bills["Days Overdue"].max()
+                bill_refs = ", ".join(party_bills["Ref Invoice"].dropna().astype(str).unique()[:3])
 
                 with col_wa2:
-                    st.metric("Net Pending Balance", f"₹{total_party_due:,.2f}", f"{max_days} Days Delay")
+                    st.metric("Actual Unpaid Balance", f"₹{total_party_due:,.2f}", f"{max_days} Days Delay")
 
                 with col_wa3:
                     st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
                     chase_msg = quote(
                         f"Dear {selected_party},\n\n"
-                        f"This is a formal payment update regarding your net outstanding balance of *₹{total_party_due:,.2f}* (Ref: {first_vch}), "
-                        f"which is overdue by *{max_days} days* against our agreed credit terms of {credit_days_threshold} days.\n\n"
-                        f"Kindly confirm the transfer of funds today or provide the RTGS/NEFT transaction UTR to avoid hold on future dispatches.\n\n"
+                        f"This is a formal payment reminder regarding your unpaid pending bills of *₹{total_party_due:,.2f}* (Ref Invoices: {bill_refs}), "
+                        f"which have exceeded our agreed credit terms by *{max_days} days*.\n\n"
+                        f"Kindly arrange the RTGS/NEFT payment today to keep your account in good standing and avoid hold on further dispatches.\n\n"
                         f"Regards,\nAccounts & Finance Department"
                     )
                     wa_chase_url = f"https://api.whatsapp.com/send?text={chase_msg}"
@@ -1431,8 +1426,9 @@ if uploaded_files:
                     """, unsafe_allow_html=True)
 
             st.dataframe(r_df, use_container_width=True, height=350)
+            st.caption("💡 **Tip**: For 100% exact Tally screen match with opening balances, you can also drop the Tally 'Bills Receivable' Excel/CSV export.")
         else:
-            st.success("🎉 All customer ledger balances are fully reconciled & paid! No outstanding receivables found.")
+            st.success("🎉 All customer invoices are cleared and settled! Zero pending debtors.")
 
     with tab4:
         if business_data["Payables_DF"] is not None:
