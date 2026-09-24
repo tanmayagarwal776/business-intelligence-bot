@@ -24,7 +24,7 @@ def get_ist_now():
 def get_ist_now_str():
     return get_ist_now().strftime("%Y-%m-%d %I:%M:%S %p")
 
-# ----------------- LUXURY FINTECH GLASSMORPHISM THEME -----------------
+# ----------------- LUXURY FINTECH THEME -----------------
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
@@ -58,26 +58,17 @@ st.markdown("""
     .metric-card {
         background: linear-gradient(135deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.7) 100%);
         backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
         border: 1px solid rgba(255, 255, 255, 0.08);
         padding: 22px;
         border-radius: 20px;
         box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
         position: relative;
         overflow: hidden;
-        transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
         margin-bottom: 14px;
     }
     .metric-card:hover {
         transform: translateY(-3px);
         border-color: rgba(99, 102, 241, 0.45);
-        box-shadow: 0 16px 40px rgba(99, 102, 241, 0.15);
-    }
-    .metric-card::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
     }
     .metric-label {
         font-size: 0.76rem;
@@ -95,7 +86,6 @@ st.markdown("""
         font-size: 1.8rem;
         font-weight: 700;
         color: #F8FAFC;
-        letter-spacing: -0.03em;
     }
     .metric-sub {
         font-size: 0.78rem;
@@ -113,7 +103,6 @@ st.markdown("""
         border-radius: 18px;
         padding: 20px 24px;
         margin-bottom: 18px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
     }
 
     .badge-chip {
@@ -138,7 +127,6 @@ st.markdown("""
         border-radius: 18px;
         padding: 22px;
         margin-bottom: 20px;
-        box-shadow: 0 10px 30px rgba(79, 70, 229, 0.15);
     }
 
     .luxury-statement-table {
@@ -163,9 +151,6 @@ st.markdown("""
         border-bottom: 1px solid rgba(255, 255, 255, 0.04);
         background: rgba(15, 23, 42, 0.25);
     }
-    .luxury-statement-table tr:hover td {
-        background: rgba(30, 41, 59, 0.45);
-    }
     .luxury-statement-total {
         font-weight: 700;
         border-top: 2px solid rgba(255, 255, 255, 0.15) !important;
@@ -184,12 +169,6 @@ st.markdown("""
         font-weight: 700;
         font-size: 0.95rem;
         text-decoration: none;
-        box-shadow: 0 6px 20px rgba(37, 211, 102, 0.35);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-    .whatsapp-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(37, 211, 102, 0.5);
     }
 
     .whatsapp-chase-badge {
@@ -350,7 +329,7 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")[cite: 14]
 
-# ----------------- TALLY DATA ENGINE -----------------
+# ----------------- TRUE TALLY INVENTORY & RECONCILED LEDGER ENGINE -----------------
 def extract_all_from_xml(uploaded_file):
     uploaded_file.seek(0)
     raw_content = uploaded_file.read()
@@ -877,10 +856,7 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
 
     st.markdown("---")
 
-    # PRICING CONTROLLER
-    st.markdown("### 💰 Subscription Pricing Manager (Live Store Controller)")
-    st.caption("Admin portal se subscription rates instantly update karein. Clients ko renew screen par yahi naye rates dikhenge.")
-    
+    st.markdown("### 💰 Subscription Pricing Manager")
     col_p1, col_p2, col_p3 = st.columns([1.5, 1.5, 1.2])
     with col_p1:
         new_monthly = st.number_input("Monthly License Price (INR ₹):", min_value=99, max_value=99999, value=current_monthly_price, step=50)
@@ -895,9 +871,7 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
 
     st.markdown("---")
 
-    # CLIENT MASTER TABLE
     st.markdown("### 📋 Client Portfolio Master Table (Indian Standard Time)")
-
     table_data = []
     now_ist = get_ist_now().date()
 
@@ -1037,6 +1011,7 @@ if uploaded_files:
             vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
 
         if fname.endswith('.xml'):
+            # Sales Vouchers (Debit)
             s_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
             if not s_rows.empty:
                 business_data["Sales_DF"] = s_rows
@@ -1046,25 +1021,69 @@ if uploaded_files:
                     business_data["Top_Customer"] = top_c.index[0]
                     business_data["Top_Customer_Amt"] = top_c.iloc[0]
 
+            # Purchase Vouchers (Credit)
             p_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("purchase|purch", na=False)]
             if not p_rows.empty:
                 business_data["Purchase_DF"] = p_rows
                 business_data["Purchase"] += p_rows["Amount"].sum()
 
-            r_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("receipt|receiv", na=False)]
-            if not r_rows.empty:
-                business_data["Receivables_DF"] = r_rows
-                business_data["Outstanding"] += r_rows["Amount"].sum()
-                overdue_r = r_rows[r_rows["Days_Overdue"] >= credit_days_threshold]
-                business_data["Overdue"] += overdue_r["Amount"].sum()
-                business_data["Critical_Count"] += len(overdue_r)
-
+            # Payments Made to Vendors
             py_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("payment|payab", na=False)]
             if not py_rows.empty:
                 business_data["Payables_DF"] = py_rows
                 business_data["Payables"] += py_rows["Amount"].sum()
                 msme_overdue_xml = py_rows[py_rows["Days_Overdue"] >= 45]
                 business_data["MSME_Critical_Dues"] += msme_overdue_xml["Amount"].sum()
+
+            # ----------------- TRUE DEBTOR RECONCILIATION ENGINE -----------------
+            # Party Balance = (Total Sales Billed) MINUS (Total Receipts Received)
+            rcpt_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("receipt", na=False)]
+            
+            sales_by_party = s_rows.groupby("Party Name")["Amount"].sum() if not s_rows.empty else pd.Series(dtype=float)
+            rcpt_by_party = rcpt_rows.groupby("Party Name")["Amount"].sum() if not rcpt_rows.empty else pd.Series(dtype=float)
+
+            reconciled_debtors = []
+            all_parties = set(sales_by_party.index).union(set(rcpt_by_party.index))
+
+            for party in all_parties:
+                # Bank / Internal transfers ko party se filter karein
+                if any(k in party.lower() for k in ["bank", "cash", "gst", "tds", "round", "interest", "sales", "purchase"]):
+                    continue
+                    
+                total_billed = float(sales_by_party.get(party, 0.0))
+                total_paid = float(rcpt_by_party.get(party, 0.0))
+                net_due = total_billed - total_paid
+
+                # Agar payment completely settled hai (Balance <= 10 INR difference) to overdue se hatayein!
+                if net_due > 10.0:
+                    party_sales_vchs = s_rows[s_rows["Party Name"] == party]
+                    max_days = party_sales_vchs["Days_Overdue"].max() if not party_sales_vchs.empty else 0
+                    last_vch = party_sales_vchs["Vch No."].iloc[-1] if not party_sales_vchs.empty else "BILL"
+                    last_date = party_sales_vchs["Date"].iloc[-1] if not party_sales_vchs.empty else str(get_ist_now().date())
+
+                    reconciled_debtors.append({
+                        "Party Name": party,
+                        "Net Outstanding Due (₹)": net_due,
+                        "Total Billed (₹)": total_billed,
+                        "Total Paid (₹)": total_paid,
+                        "Last Bill Date": last_date,
+                        "Ref Invoice": last_vch,
+                        "Days Overdue": max_days
+                    })
+
+            if reconciled_debtors:
+                rec_df = pd.DataFrame(reconciled_debtors)
+                business_data["Receivables_DF"] = rec_df
+                business_data["Outstanding"] = rec_df["Net Outstanding Due (₹)"].sum()
+                
+                overdue_rec = rec_df[rec_df["Days Overdue"] >= credit_days_threshold]
+                business_data["Overdue"] = overdue_rec["Net Outstanding Due (₹)"].sum()
+                business_data["Critical_Count"] = len(overdue_rec)
+            else:
+                business_data["Receivables_DF"] = pd.DataFrame()
+                business_data["Outstanding"] = 0.0
+                business_data["Overdue"] = 0.0
+                business_data["Critical_Count"] = 0
 
         elif "stock" in fname or "inventory" in fname:
             business_data["Stock_DF"] = fdf
@@ -1097,17 +1116,6 @@ if uploaded_files:
                         business_data["Top_Customer"] = top_c.index[0]
                         business_data["Top_Customer_Amt"] = top_c.iloc[0]
 
-        elif "receivable" in fname or "bill" in fname or "outstand" in fname or "Days_Overdue" in fdf.columns:
-            business_data["Receivables_DF"] = fdf
-            if "Amount" in fdf.columns:
-                business_data["Outstanding"] += fdf["Amount"].sum()
-            if "Days_Overdue" in fdf.columns:
-                overdue_rows = fdf[fdf["Days_Overdue"] > 0]
-                if "Amount" in overdue_rows.columns:
-                    business_data["Overdue"] += overdue_rows["Amount"].sum()
-                critical_df = fdf[fdf["Days_Overdue"] >= credit_days_threshold]
-                business_data["Critical_Count"] += len(critical_df)
-
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
 
@@ -1134,17 +1142,15 @@ if uploaded_files:
     health_score = 100
     risk_warnings = []
     
-    # 1. Overdue Ratio Penalty
     if business_data["Outstanding"] > 0:
         overdue_ratio = (business_data["Overdue"] / business_data["Outstanding"]) * 100
         if overdue_ratio > 40:
             health_score -= 25
-            risk_warnings.append(f"⚠️ **Debtor Illiquidity Alert**: {overdue_ratio:.1f}% of total receivables are past due limits! Immediate cash flow impact predicted.")
+            risk_warnings.append(f"⚠️ **Debtor Illiquidity Alert**: {overdue_ratio:.1f}% of total net receivables are past due limits! Immediate cash flow impact predicted.")
         elif overdue_ratio > 20:
             health_score -= 10
             risk_warnings.append(f"⚡ **Debtor Delay Warning**: {overdue_ratio:.1f}% receivables overdue.")
 
-    # 2. Customer Concentration Risk Penalty
     if business_data["Sales"] > 0 and business_data["Top_Customer_Amt"] > 0:
         cust_conc = (business_data["Top_Customer_Amt"] / business_data["Sales"]) * 100
         if cust_conc > 35:
@@ -1153,13 +1159,11 @@ if uploaded_files:
         elif cust_conc > 25:
             health_score -= 10
 
-    # 3. Payables vs Receivables Liquidity Crunch
     if business_data["Payables"] > business_data["Outstanding"] and business_data["Outstanding"] > 0:
         health_score -= 15
         diff = business_data["Payables"] - business_data["Outstanding"]
         risk_warnings.append(f"🛑 **Working Capital Deficit**: Supplier payables exceed customer debtor receivables by ₹{diff:,.2f}.")
 
-    # 4. MSME 45-Day Statutory Penalty
     if business_data["MSME_Critical_Dues"] > 0:
         health_score -= 15
         risk_warnings.append(f"⚖️ **MSME Section 43B(h) Risk**: Overdue vendor dues of ₹{business_data['MSME_Critical_Dues']:,.2f} exceeding 45 days face disallowance & tax interest.")
@@ -1194,7 +1198,7 @@ if uploaded_files:
         </div>
     """, unsafe_allow_html=True)
 
-    # ----------------- AI RADAR & FINANCIAL HEALTH BANNER -----------------
+    # AI RADAR
     st.markdown(f"""
         <div class="ai-radar-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -1225,7 +1229,7 @@ if uploaded_files:
             for w in risk_warnings:
                 st.markdown(f"- {w}")
 
-    # 4 Luxury KPI Glassmorphism Cards
+    # 4 Core KPI Cards
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(f"""
@@ -1242,22 +1246,22 @@ if uploaded_files:
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">
-                    <span>Debtor Book</span>
-                    <span class="badge-chip badge-indigo">Receivables</span>
+                    <span>Actual Debtor Book</span>
+                    <span class="badge-chip badge-indigo">Net Dues</span>
                 </div>
                 <div class="metric-val">₹{business_data['Outstanding']:,.2f}</div>
-                <div class="metric-sub" style="color: #818CF8;">● Current Assets (Sundry)</div>
+                <div class="metric-sub" style="color: #818CF8;">● Reconciled Outstanding (Debit - Credit)</div>
             </div>
         """, unsafe_allow_html=True)
     with k3:
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">
-                    <span>Overdue Risk</span>
+                    <span>Actual Overdue Risk</span>
                     <span class="badge-chip badge-rose">{credit_days_threshold}+ Days</span>
                 </div>
                 <div class="metric-val" style="color: #FB7185;">₹{business_data['Overdue']:,.2f}</div>
-                <div class="metric-sub" style="color: #FB7185;">● Working Capital Lockup</div>
+                <div class="metric-sub" style="color: #FB7185;">● Real Unpaid Cash Lockup</div>
             </div>
         """, unsafe_allow_html=True)
     with k4:
@@ -1272,7 +1276,6 @@ if uploaded_files:
             </div>
         """, unsafe_allow_html=True)
 
-    # Key Revenue Account & Critical Risk Split
     c_sub1, c_sub2 = st.columns(2)
     with c_sub1:
         st.markdown(f"""
@@ -1288,10 +1291,10 @@ if uploaded_files:
         st.markdown(f"""
             <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <div style="font-size: 0.76rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Debtor Exposure Beyond Benchmark</div>
+                    <div style="font-size: 0.76rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Real Debtor Risk ({credit_days_threshold}+ Days)</div>
                     <div style="font-size: 1.35rem; font-weight: 800; color: #FB7185; margin-top: 3px;">{business_data['Critical_Count']} Overdue Accounts</div>
                 </div>
-                <div class="badge-chip badge-rose">Limit: {credit_days_threshold} Days</div>
+                <div class="badge-chip badge-rose">Net Pending Only</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -1305,7 +1308,7 @@ if uploaded_files:
 
     st.markdown("---")
 
-    # CA Audit & Tax Dossier Panel
+    # CA Audit Dossier
     st.markdown("### 🏛️ March-Ending CA Audit & Tax Dossier")
     ca_col1, ca_col2 = st.columns([2.2, 1.8])
     with ca_col1:
@@ -1338,8 +1341,8 @@ if uploaded_files:
             {"Audit Metric": "Direct Expenses", "Amount (INR)": business_data["Direct_Expenses"]},
             {"Audit Metric": "Indirect Expenses", "Amount (INR)": business_data["Indirect_Expenses"]},
             {"Audit Metric": "Nett Profit", "Amount (INR)": net_profit},
-            {"Audit Metric": "Total Sundry Debtors (Receivables)", "Amount (INR)": business_data["Outstanding"]},
-            {"Audit Metric": "Total Overdue Portfolio", "Amount (INR)": business_data["Overdue"]},
+            {"Audit Metric": "Actual Sundry Debtors (Reconciled Net Dues)", "Amount (INR)": business_data["Outstanding"]},
+            {"Audit Metric": "Actual Overdue Risk Portfolio", "Amount (INR)": business_data["Overdue"]},
             {"Audit Metric": "Total Sundry Creditors (Payables)", "Amount (INR)": business_data["Payables"]},
             {"Audit Metric": "MSME Overdue Payables (>45 Days - Sec 43Bh)", "Amount (INR)": business_data["MSME_Critical_Dues"]}
         ])
@@ -1347,7 +1350,7 @@ if uploaded_files:
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             audit_summary_df.to_excel(writer, sheet_name="CA_Audit_Summary", index=False)
-            if business_data["Receivables_DF"] is not None:
+            if business_data["Receivables_DF"] is not None and not business_data["Receivables_DF"].empty:
                 business_data["Receivables_DF"].to_excel(writer, sheet_name="Debtors_Ageing", index=False)
             if business_data["Payables_DF"] is not None:
                 business_data["Payables_DF"].to_excel(writer, sheet_name="Creditors_MSME", index=False)
@@ -1367,7 +1370,7 @@ if uploaded_files:
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Sales Register", 
         "📦 Purchase Register", 
-        "⚠️ Receivables & WhatsApp Recovery", 
+        "⚠️ Reconciled Receivables & WhatsApp Recovery", 
         "🏢 Payables (Creditors & MSME)",
         "📋 Stock Summary",
         "⚖️ Profit & Loss A/c"
@@ -1386,19 +1389,16 @@ if uploaded_files:
             st.info("Purchase billing records will populate once data is uploaded.")
             
     with tab3:
-        # ----------------- 1-CLICK WHATSAPP PAYMENT RECOVERY CHASER -----------------
+        # ----------------- TRUE RECONCILED DEBTORS TABLE -----------------
         if business_data["Receivables_DF"] is not None and not business_data["Receivables_DF"].empty:
-            st.markdown("#### ⚡ Debtor Ledger & Instant WhatsApp Payment Dues Chaser")
-            st.caption("Click 'Send WhatsApp Notice' to dispatch professional legal/business collection reminders directly to client phones.")
-
             r_df = business_data["Receivables_DF"].copy()
 
-            # Top Overdue Quick Action Row
-            overdue_only = r_df[r_df["Days_Overdue"] >= credit_days_threshold]
+            # Overdue Dues Center (Only positive pending balances)
+            overdue_only = r_df[r_df["Days Overdue"] >= credit_days_threshold]
             if not overdue_only.empty:
                 st.markdown(f"""
                     <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: 12px; padding: 14px 18px; margin-bottom: 15px;">
-                        <b style="color: #FB7185;">Critical Overdue Dues Action Center:</b> {len(overdue_only)} debtors have exceeded {credit_days_threshold} days threshold.
+                        <b style="color: #FB7185;">Critical Overdue Action Center:</b> {len(overdue_only)} debtors have genuine unpaid dues exceeding {credit_days_threshold} days. (Settled parties like JAY SALT auto-removed).
                     </div>
                 """, unsafe_allow_html=True)
 
@@ -1406,21 +1406,20 @@ if uploaded_files:
                 with col_wa1:
                     selected_party = st.selectbox("Select Overdue Debtor to Dispatch Notice:", overdue_only["Party Name"].unique(), key="chase_party_sel")
                 
-                party_rows = overdue_only[overdue_only["Party Name"] == selected_party]
-                total_party_due = party_rows["Amount"].sum()
-                max_days = party_rows["Days_Overdue"].max()
-                first_vch = party_rows["Vch No."].iloc[0] if "Vch No." in party_rows.columns and pd.notna(party_rows["Vch No."].iloc[0]) else "NA"
+                party_row = overdue_only[overdue_only["Party Name"] == selected_party].iloc[0]
+                total_party_due = party_row["Net Outstanding Due (₹)"]
+                max_days = party_row["Days Overdue"]
+                first_vch = party_row["Ref Invoice"]
 
                 with col_wa2:
-                    st.metric("Total Outstanding Due", f"₹{total_party_due:,.2f}", f"{max_days} Days Delay")
+                    st.metric("Net Pending Balance", f"₹{total_party_due:,.2f}", f"{max_days} Days Delay")
 
                 with col_wa3:
                     st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
-                    # Structured Legal / Polite Financial Notice
                     chase_msg = quote(
                         f"Dear {selected_party},\n\n"
-                        f"This is a formal payment update regarding your ledger balance of *₹{total_party_due:,.2f}* (Ref Vch: {first_vch}), "
-                        f"which is currently overdue by *{max_days} days* against our agreed credit terms of {credit_days_threshold} days.\n\n"
+                        f"This is a formal payment update regarding your net outstanding balance of *₹{total_party_due:,.2f}* (Ref: {first_vch}), "
+                        f"which is overdue by *{max_days} days* against our agreed credit terms of {credit_days_threshold} days.\n\n"
                         f"Kindly confirm the transfer of funds today or provide the RTGS/NEFT transaction UTR to avoid hold on future dispatches.\n\n"
                         f"Regards,\nAccounts & Finance Department"
                     )
@@ -1433,7 +1432,7 @@ if uploaded_files:
 
             st.dataframe(r_df, use_container_width=True, height=350)
         else:
-            st.info("Debtor ageing entries will populate once data is uploaded.")
+            st.success("🎉 All customer ledger balances are fully reconciled & paid! No outstanding receivables found.")
 
     with tab4:
         if business_data["Payables_DF"] is not None:
