@@ -24,7 +24,7 @@ def get_ist_now():
 def get_ist_now_str():
     return get_ist_now().strftime("%Y-%m-%d %I:%M:%S %p")
 
-# ----------------- LUXURY FINTECH THEME -----------------
+# ----------------- LUXURY FINTECH THEME WITH CSS3 ANIMATIONS -----------------
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
@@ -39,6 +39,76 @@ st.markdown("""
                     radial-gradient(circle at 85% 85%, rgba(15, 23, 42, 0.9) 0%, transparent 55%),
                     linear-gradient(135deg, #090D16 0%, #0F172A 50%, #0B1120 100%) !important;
         background-attachment: fixed !important;
+    }
+
+    /* Keyframe Animations */
+    @keyframes floatCard {
+        0% { transform: translateY(0px); }
+        50% { transform: translateY(-7px); }
+        100% { transform: translateY(0px); }
+    }
+
+    @keyframes pulseGlow {
+        0% { box-shadow: 0 0 10px rgba(99, 102, 241, 0.2); }
+        50% { box-shadow: 0 0 25px rgba(99, 102, 241, 0.6); }
+        100% { box-shadow: 0 0 10px rgba(99, 102, 241, 0.2); }
+    }
+
+    @keyframes gradientShift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    .animated-hero {
+        background: linear-gradient(270deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9), rgba(49, 46, 129, 0.4));
+        background-size: 400% 400%;
+        animation: gradientShift 10s ease infinite;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 30px;
+        margin-bottom: 25px;
+        text-align: center;
+        box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .animated-step-card {
+        background: rgba(30, 41, 59, 0.45);
+        backdrop-filter: blur(14px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px;
+        padding: 24px;
+        margin-bottom: 20px;
+        transition: all 0.35s ease;
+        position: relative;
+    }
+    .animated-step-card:hover {
+        transform: translateY(-5px);
+        border-color: rgba(99, 102, 241, 0.5);
+        animation: pulseGlow 2.5s infinite;
+    }
+
+    .step-number-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+        background: linear-gradient(135deg, #6366F1, #38BDF8);
+        color: #FFFFFF;
+        font-weight: 800;
+        border-radius: 12px;
+        font-size: 1.1rem;
+        margin-bottom: 12px;
+        box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+    }
+
+    .pipeline-connector {
+        text-align: center;
+        font-size: 1.8rem;
+        color: #818CF8;
+        padding: 10px 0;
+        animation: floatCard 2.5s ease-in-out infinite;
     }
 
     .executive-topbar {
@@ -61,39 +131,14 @@ st.markdown("""
         padding: 22px;
         border-radius: 20px;
         box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
-        position: relative;
-        overflow: hidden;
         margin-bottom: 14px;
+        transition: transform 0.25s ease;
     }
-    .metric-card:hover {
-        transform: translateY(-3px);
-        border-color: rgba(99, 102, 241, 0.45);
-    }
-    .metric-label {
-        font-size: 0.76rem;
-        font-weight: 600;
-        color: #94A3B8;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 8px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .metric-val {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #F8FAFC;
-    }
-    .metric-sub {
-        font-size: 0.78rem;
-        margin-top: 8px;
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
+    .metric-card:hover { transform: translateY(-3px); }
+    
+    .metric-label { font-size: 0.76rem; font-weight: 600; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+    .metric-val { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; font-weight: 700; color: #F8FAFC; }
+    .metric-sub { font-size: 0.78rem; margin-top: 8px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
 
     .info-card {
         background: rgba(15, 23, 42, 0.55);
@@ -184,14 +229,6 @@ st.markdown("""
         display: inline-flex;
         align-items: center;
         gap: 6px;
-    }
-
-    .step-box {
-        background: rgba(30, 41, 59, 0.4);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 16px;
-        padding: 20px;
-        margin-bottom: 15px;
     }
 
     section[data-testid="stSidebar"] {
@@ -335,7 +372,7 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- PARSERS -----------------
+# ----------------- TALLY DATA PARSER -----------------
 def extract_all_from_xml(uploaded_file):
     uploaded_file.seek(0)
     raw_content = uploaded_file.read()
@@ -478,17 +515,7 @@ def load_tally_file(uploaded_file):
     df = df.reset_index(drop=True)
     return df, pd.DataFrame(), pd.DataFrame()
 
-def generate_upi_qr(vpa, name, amount):
-    upi_url = f"upi://pay?pa={vpa}&pn={quote(name)}&am={amount}&cu=INR"
-    qr = qrcode.QRCode(version=1, box_size=5, border=2)
-    qr.add_data(upi_url)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buf = BytesIO()
-    img.save(buf)
-    return buf.getvalue()
-
-# ----------------- AUTHENTICATION (WHATSAPP OTP RESTORED) -----------------
+# ----------------- AUTHENTICATION -----------------
 if not st.session_state["logged_in"]:
     st.markdown("""
         <div style="text-align: center; margin-top: 40px; margin-bottom: 25px;">
@@ -650,13 +677,6 @@ if st.session_state.get("status") == "expired":
             else:
                 st.error("Valid transaction reference required.")
 
-        st.markdown("""
-            <div style="text-align: center; margin-top: 15px;">
-                <span style="color: #94A3B8; font-size: 0.85rem;">💬 Payment Query?</span><br>
-                <b>Customer Care:</b> <a href="https://wa.me/917016882039" style="color: #34D399; font-weight: 700; text-decoration: none;">+91 7016882039</a>
-            </div>
-        """, unsafe_allow_html=True)
-
         if st.button("Log Out"):
             st.session_state.clear()
             st.rerun()
@@ -694,12 +714,12 @@ with st.sidebar:
             "📊 Analytics Dashboard", 
             "👥 User Management & CRM", 
             "💳 License Approvals",
-            "📖 App Guide & Introduction"
+            "📖 App Guide & Animated Tour"
         ], key="admin_console_nav_radio")
     else:
         admin_mode = st.radio("Navigation View", [
             "📊 Analytics Dashboard", 
-            "📖 App Guide & Introduction"
+            "📖 App Guide & Animated Tour"
         ], key="client_nav_radio")
 
     st.markdown("#### ⚙️ Business Rules")
@@ -726,7 +746,7 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
 
-# ----------------- ADMIN: USER CRM + PRICING CONTROLLER (RESTORED) -----------------
+# ----------------- ADMIN: USER CRM + PRICING CONTROLLER -----------------
 if st.session_state["role"] == "admin" and admin_mode == "👥 User Management & CRM":
     st.markdown("""
         <div class="executive-topbar">
@@ -753,11 +773,7 @@ if st.session_state["role"] == "admin" and admin_mode == "👥 User Management &
     crm4.metric("Pending / Expired", expired_u)
 
     st.markdown("---")
-
-    # FEATURE 1: DYNAMIC SUBSCRIPTION PRICING MANAGER
     st.markdown("### 💰 Subscription Pricing Manager (Live Store Controller)")
-    st.caption("Admin portal se subscription rates instantly update karein. Clients ko renew screen par yahi naye rates dikhenge.")
-    
     col_p1, col_p2, col_p3 = st.columns([1.5, 1.5, 1.2])
     with col_p1:
         new_monthly = st.number_input("Monthly License Price (INR ₹):", min_value=99, max_value=99999, value=current_monthly_price, step=50)
@@ -771,10 +787,7 @@ if st.session_state["role"] == "admin" and admin_mode == "👥 User Management &
             st.rerun()
 
     st.markdown("---")
-
-    # FEATURE 2: CLIENT PORTFOLIO MASTER TABLE WITH ACCURATE IST
     st.markdown("### 📋 Client Portfolio Master Table (Indian Standard Time)")
-
     table_data = []
     now_ist = get_ist_now().date()
 
@@ -810,7 +823,6 @@ if st.session_state["role"] == "admin" and admin_mode == "👥 User Management &
 
     st.markdown("---")
     st.markdown("### 🛠️ Instant User Entitlement Override")
-    
     non_admin_usernames = [x[0] for x in all_users if x[0] != "tanmay_admin"]
     if non_admin_usernames:
         col_ov1, col_ov2, col_ov3 = st.columns([1.5, 1.5, 1])
@@ -839,17 +851,13 @@ if st.session_state["role"] == "admin" and admin_mode == "👥 User Management &
                 conn.commit()
                 st.success(f"Updated status for {target_user} successfully!")
                 st.rerun()
-    else:
-        st.info("No client accounts registered yet.")
-
     st.stop()
 
-# ----------------- ADMIN: LICENSE QUEUE (RESTORED) -----------------
+# ----------------- ADMIN: LICENSE QUEUE -----------------
 if st.session_state["role"] == "admin" and admin_mode == "💳 License Approvals":
     st.markdown("## 💳 License Verification Queue")
     c = conn.cursor()
     pending_users = c.execute("SELECT username, phone, plan, txn_id, status FROM users WHERE status='pending'").fetchall()
-    
     if pending_users:
         st.info(f"Requests Awaiting Verification: {len(pending_users)}")
         for u_name, u_ph, u_plan, tx_id, stat in pending_users:
@@ -870,81 +878,119 @@ if st.session_state["role"] == "admin" and admin_mode == "💳 License Approvals
         st.success("All client licenses are active. No verification backlog.")
     st.stop()
 
-# ----------------- INTRODUCTION & USER MANUAL PAGE -----------------
-def render_introduction_page():
+# ----------------- ANIMATED INTERACTIVE APP GUIDE -----------------
+def render_animated_introduction_page():
     st.markdown("""
-        <div class="executive-topbar">
-            <div>
-                <div class="badge-chip badge-indigo" style="margin-bottom: 6px;">Official Platform User Manual</div>
-                <h2 style="font-weight: 800; font-size: 2rem; margin: 0;">Tally Executive BI & CA Audit Suite Guide</h2>
-                <div style="color: #94A3B8; font-size: 0.95rem; margin-top: 4px;">Learn how this software automates Tally reconciliation, debtor chasing, and tax audit compliance.</div>
-            </div>
+        <div class="animated-hero">
+            <div class="badge-chip badge-indigo" style="margin-bottom: 10px;">✨ INTERACTIVE ANIMATED PLATFORM TOUR</div>
+            <h1 style="font-weight: 800; font-size: 2.7rem; margin: 0; background: linear-gradient(180deg, #FFFFFF 0%, #94A3B8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                Tally Executive BI & CA Audit Suite
+            </h1>
+            <p style="color: #94A3B8; font-size: 1.05rem; margin-top: 10px; max-width: 650px; margin-left: auto; margin-right: auto;">
+                Raw Tally XML exports ko ek smart, high-margin executive dashboard me convert karein jo actual unpaid dues ko highlight kare aur statutory audit ko automate kare.
+            </p>
         </div>
     """, unsafe_allow_html=True)
 
-    col_a, col_b = st.columns(2)
-    with col_a:
+    st.markdown("### 🔄 The 3-Step Execution Pipeline")
+    
+    col1, col_arrow1, col2, col_arrow2, col3 = st.columns([2.5, 0.4, 2.5, 0.4, 2.5])
+    
+    with col1:
         st.markdown("""
-            <div class="info-card">
-                <h3 style="color: #38BDF8; font-weight: 700; font-size: 1.25rem;">⚡ Yeh Platform Kya Kaam Karta Hai?</h3>
-                <p style="color: #CBD5E1; font-size: 0.92rem; line-height: 1.6;">
-                    Tally me daily reports dekhna complex hota hai. Yeh software aapke raw Tally data ko ek ultra-fast <b>Fintech SaaS Executive Dashboard</b> me convert karta hai:
+            <div class="animated-step-card">
+                <div class="step-number-badge">1</div>
+                <h4 style="color: #38BDF8; margin: 0 0 6px 0;">Export Tally Data</h4>
+                <div style="font-size: 0.8rem; color: #94A3B8; margin-bottom: 12px;">Zero Configuration Setup</div>
+                <p style="font-size: 0.88rem; color: #CBD5E1; line-height: 1.6;">
+                    Tally Prime se <code>Transactions.xml</code> ya <code>Bills.xlsx</code> export karein. Koi third-party connector ya API installation ki zaroorat nahi.
                 </p>
-                <ul style="color: #94A3B8; font-size: 0.88rem; line-height: 1.8;">
-                    <li><b>FIFO Clean Debtors Engine</b>: Puraane settled aur zero-balance accounts (jaise Jay Salt) automatically hide ho jaate hain. Sirf actual unpaid bills show hote hain.</li>
-                    <li><b>1-Click WhatsApp Legal Notice</b>: Jo customers payment delay kar rahe hain, unhe 1 click me bill number aur late days ke sath ready notice send karein.</li>
-                    <li><b>Statutory March CA Audit Dossier</b>: Balance Sheet, AS-2 Stock summary, aur Sec 43B(h) MSME overdue schedules 1 Excel sheet me download karein.</li>
-                    <li><b>T-Shape Profit & Loss Statement</b>: Tally Prime replica Trading & P&L display.</li>
-                </ul>
+                <span class="badge-chip badge-emerald">Drag & Drop Ready</span>
             </div>
         """, unsafe_allow_html=True)
 
-    with col_b:
+    with col_arrow1:
+        st.markdown('<div class="pipeline-connector">➔</div>', unsafe_allow_html=True)
+
+    with col2:
         st.markdown("""
-            <div class="info-card">
-                <h3 style="color: #34D399; font-weight: 700; font-size: 1.25rem;">🛠️ Kaise Kaam Karta Hai (Process)?</h3>
-                <ol style="color: #94A3B8; font-size: 0.88rem; line-height: 1.8;">
-                    <li><b>Data Ingestion</b>: Aap Tally se exports download karke sidebar me drag & drop karte hain.</li>
-                    <li><b>Multi-Voucher Matching</b>: Engine Sales, Purchases, Receipts, Payments, aur Journals ko bill-to-bill knockoff karta hai.</li>
-                    <li><b>Live Risk Telemetry</b>: Agar payables receivables se zyada ho ya single customer concentration 35% se upar ho, to AI alert trigger hota hai.</li>
-                    <li><b>Zero Database Conflict</b>: Data encrypted format me local SQLite aur browser memory me audit hota hai.</li>
-                </ol>
+            <div class="animated-step-card">
+                <div class="step-number-badge">2</div>
+                <h4 style="color: #818CF8; margin: 0 0 6px 0;">FIFO Knockoff Engine</h4>
+                <div style="font-size: 0.8rem; color: #94A3B8; margin-bottom: 12px;">Automated Ledger Reconciliation</div>
+                <p style="font-size: 0.88rem; color: #CBD5E1; line-height: 1.6;">
+                    Engine Sales, Receipts, aur Journals ko bill-by-bill match karta hai. Zero balance aur fully paid parties automatically remove ho jaati hain.
+                </p>
+                <span class="badge-chip badge-indigo">Clean Debtor Book</span>
             </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("### 📥 Kaunsi Files Upload Karni Hain? (Tally Export Shortcuts)")
+    with col_arrow2:
+        st.markdown('<div class="pipeline-connector">➔</div>', unsafe_allow_html=True)
 
-    st.markdown("""
-        <div class="step-box">
-            <h4 style="color: #F8FAFC; margin-bottom: 6px;">1. Full Fiscal Year Daybook / Transactions (Zaroori)</h4>
-            <span class="badge-chip badge-emerald">File Type: Transactions.xml</span>
-            <p style="color: #94A3B8; font-size: 0.9rem; margin-top: 8px;">
-                Is file se Turnover (Sales A/c), Procurement (Purchase A/c), Direct Expenses aur Trading P&L generate hota hai.<br>
-                <b>Tally Shortcut:</b> <code>Display More Reports (D) > Day Book (D)</code> > Press <code>Alt + F2</code> (Select Full Period, e.g. 1-Apr-26 to 26-Sep-26) > Press <code>Ctrl + E</code> > Format: <b>XML (Data Interchange)</b>.
-            </p>
-        </div>
-        
-        <div class="step-box">
-            <h4 style="color: #F8FAFC; margin-bottom: 6px;">2. Bills Receivable Report (Recommended for 100% Opening Balance Accuracy)</h4>
-            <span class="badge-chip badge-indigo">File Type: Bills.xlsx / Bills.csv</span>
-            <p style="color: #94A3B8; font-size: 0.9rem; margin-top: 8px;">
-                Is file se customers ke exact pending bills aur delay days 100% Tally screen se match hote hain.<br>
-                <b>Tally Shortcut:</b> <code>Display More Reports (D) > Statements of Accounts (S) > Outstandings (O) > Bills Receivable (B)</code> > Press <code>Ctrl + E</code> > Format: <b>Excel (.xlsx)</b>.
-            </p>
-        </div>
+    with col3:
+        st.markdown("""
+            <div class="animated-step-card">
+                <div class="step-number-badge">3</div>
+                <h4 style="color: #34D399; margin: 0 0 6px 0;">Executive Action</h4>
+                <div style="font-size: 0.8rem; color: #94A3B8; margin-bottom: 12px;">Cash Collection & Tax Audit</div>
+                <p style="font-size: 0.88rem; color: #CBD5E1; line-height: 1.6;">
+                    1-Click me overdue customers ko WhatsApp recovery notice bhejein, Tally replica P&L dekhein, aur CA Audit Dossier download karein.
+                </p>
+                <span class="badge-chip badge-rose">1-Click WhatsApp</span>
+            </div>
+        """, unsafe_allow_html=True)
 
-        <div class="step-box">
-            <h4 style="color: #F8FAFC; margin-bottom: 6px;">3. Bills Payable Report (Suppliers & MSME Dues)</h4>
-            <span class="badge-chip badge-rose">File Type: pables.xls / payables.xlsx</span>
-            <p style="color: #94A3B8; font-size: 0.9rem; margin-top: 8px;">
-                Is file se suppliers ke genuine unpaid outstandings aur Section 43B(h) 45-day statutory liabilities track hoti hain.<br>
-                <b>Tally Shortcut:</b> <code>Display More Reports (D) > Statements of Accounts (S) > Outstandings (O) > Bills Payable (P)</code> > Press <code>Ctrl + E</code> > Format: <b>Excel (.xls / .xlsx)</b>.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown("### 📂 Required Files & Direct Tally Shortcuts")
 
-if admin_mode == "📖 App Guide & Introduction":
-    render_introduction_page()
+    col_f1, col_f2, col_f3 = st.columns(3)
+    
+    with col_f1:
+        st.markdown("""
+            <div class="animated-step-card">
+                <div class="badge-chip badge-emerald" style="margin-bottom: 8px;">FILE 1: DAYBOOK TRANSACTIONS</div>
+                <h4 style="color: #F8FAFC; margin-bottom: 8px;">Transactions.xml</h4>
+                <p style="color: #94A3B8; font-size: 0.85rem; line-height: 1.6;">
+                    <b>Purpose:</b> Generates Gross Turnover (Sales A/c), Procurement (Purchase A/c), Direct Incomes & Tally P&L balances.<br><br>
+                    <b>Tally Shortcut:</b><br>
+                    <code>Display More Reports (D) > Day Book (D)</code><br>
+                    Press <code>Alt + F2</code> ➔ Set Full Period (e.g. 1-Apr to 26-Sep)<br>
+                    Press <code>Ctrl + E</code> ➔ Format: <b>XML</b>.
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col_f2:
+        st.markdown("""
+            <div class="animated-step-card">
+                <div class="badge-chip badge-indigo" style="margin-bottom: 8px;">FILE 2: CUSTOMER OUTSTANDINGS</div>
+                <h4 style="color: #F8FAFC; margin-bottom: 8px;">Bills.xlsx / Bills.csv</h4>
+                <p style="color: #94A3B8; font-size: 0.85rem; line-height: 1.6;">
+                    <b>Purpose:</b> 100% exact Tally screen match for Customer Overdues, Delay Days & WhatsApp notice tracking.<br><br>
+                    <b>Tally Shortcut:</b><br>
+                    <code>Display More Reports (D) > Statements of Accounts (S) > Outstandings (O) > Bills Receivable (B)</code><br>
+                    Press <code>Ctrl + E</code> ➔ Format: <b>Excel (.xlsx)</b>.
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col_f3:
+        st.markdown("""
+            <div class="animated-step-card">
+                <div class="badge-chip badge-rose" style="margin-bottom: 8px;">FILE 3: VENDOR & MSME DUES</div>
+                <h4 style="color: #F8FAFC; margin-bottom: 8px;">pables.xls / payables.xlsx</h4>
+                <p style="color: #94A3B8; font-size: 0.85rem; line-height: 1.6;">
+                    <b>Purpose:</b> Tracks supplier payment commitments and Section 43B(h) MSME 45-day statutory liability risks.<br><br>
+                    <b>Tally Shortcut:</b><br>
+                    <code>Display More Reports (D) > Statements of Accounts (S) > Outstandings (O) > Bills Payable (P)</code><br>
+                    Press <code>Ctrl + E</code> ➔ Format: <b>Excel (.xls / .xlsx)</b>.
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+
+if admin_mode == "📖 App Guide & Animated Tour":
+    render_animated_introduction_page()
     st.stop()
 
 # ----------------- MAIN EXECUTIVE DASHBOARD -----------------
@@ -1260,4 +1306,4 @@ if uploaded_files:
             </div>
         """, unsafe_allow_html=True)
 else:
-    render_introduction_page()
+    render_animated_introduction_page()
