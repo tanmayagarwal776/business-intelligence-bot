@@ -316,7 +316,7 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- MULTI-VOUCHER (RECEIPT, JOURNAL, PAYMENT) RECONCILIATION ENGINE -----------------
+# ----------------- TALLY PARSER -----------------
 def extract_all_from_xml(uploaded_file):
     uploaded_file.seek(0)
     raw_content = uploaded_file.read()
@@ -389,8 +389,7 @@ def extract_all_from_xml(uploaded_file):
                 "Vch No.": v_no,
                 "Party Name": p_name,
                 "Amount": max_amt,
-                "Days_Overdue": days_old,
-                "Splits": ledger_splits
+                "Days_Overdue": days_old
             })
 
         is_purchase = any(x in v_type.lower() for x in ["purchase", "receipt note"])
@@ -471,6 +470,7 @@ def extract_all_from_xml(uploaded_file):
     exp_df = pd.DataFrame(expense_records) if expense_records else pd.DataFrame()
     return vch_df, stk_df, exp_df
 
+# ----------------- ROBUST EXCEL / CSV LOADER (BILLS & PABLES) -----------------
 def load_tally_file(uploaded_file):
     fname = uploaded_file.name.lower()
     if fname.endswith('.xml'):
@@ -492,7 +492,7 @@ def load_tally_file(uploaded_file):
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     header_idx = None
-    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'month', 'july', 'stock', 'balance', 'closing', 'ref', 'value']
+    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'month', 'stock', 'balance', 'ref', 'value']
     
     for idx, row in raw_df.iterrows():
         row_values = [str(val).strip().lower() for val in row.values if pd.notna(val)]
@@ -517,7 +517,7 @@ def load_tally_file(uploaded_file):
     col_rename = {}
     for col in df.columns:
         c_low = str(col).lower()
-        if "party" in c_low or "particular" in c_low or "customer" in c_low or "ledger" in c_low or "item" in c_low:
+        if "party" in c_low or "particular" in c_low or "customer" in c_low or "ledger" in c_low:
             col_rename[col] = "Party Name"
         elif "pending" in c_low or "balance" in c_low:
             col_rename[col] = "Pending_Amount"
@@ -538,13 +538,12 @@ def load_tally_file(uploaded_file):
         cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
     df.columns = cols
 
+    # Amount normalization
     if "Pending_Amount" in df.columns:
         df["Pending_Amount"] = pd.to_numeric(df["Pending_Amount"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
         df["Amount"] = df["Pending_Amount"]
-    else:
-        amt_cols = [c for c in df.columns if str(c).startswith("Amount")]
-        for ac in amt_cols:
-            df[ac] = pd.to_numeric(df[ac].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
+    elif "Amount" in df.columns:
+        df["Amount"] = pd.to_numeric(df["Amount"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
 
     if "Days_Overdue" in df.columns:
         df["Days_Overdue"] = pd.to_numeric(df["Days_Overdue"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
@@ -624,7 +623,7 @@ if not st.session_state["logged_in"]:
                 wa_link = f"https://api.whatsapp.com/send?phone=91{target_phone}&text={msg_body}"
 
                 st.markdown(f"""
-                    <div style="text-align: center; margin-left: 0; margin: 15px 0;">
+                    <div style="text-align: center; margin: 15px 0;">
                         <a href="{wa_link}" target="_blank" class="whatsapp-btn">
                             💬 Send Instant OTP to WhatsApp (+91 {target_phone})
                         </a>
@@ -791,7 +790,7 @@ with st.sidebar:
 
     st.markdown("#### ⚙️ Business Rules")
     credit_days_threshold = st.slider(
-        "Debtor Credit Limit (Days)", 
+        "Credit Limit Benchmark (Days)", 
         min_value=15, 
         max_value=180, 
         value=45, 
@@ -802,10 +801,10 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("#### 📂 Tally Data Ingestion")
     uploaded_files = st.file_uploader(
-        "Upload Tally Files (.xml, .xlsx, .csv)",
+        "Upload Tally Files (.xml, .xlsx, .xls, .csv)",
         type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
-        help="Transactions.xml ya Tally Bills Receivable export upload karein."
+        help="Transactions.xml, Bills.xlsx, aur pables.xls upload karein."
     )
 
     st.markdown("---")
@@ -820,7 +819,7 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
 
-# ----------------- ADMIN: USER CRM + PRICING CONTROLLER -----------------
+# ----------------- ADMIN PORTAL -----------------
 if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM":
     st.markdown("""
         <div class="executive-topbar">
@@ -847,7 +846,6 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
     crm4.metric("Pending / Expired", expired_u)
 
     st.markdown("---")
-
     st.markdown("### 💰 Subscription Pricing Manager")
     col_p1, col_p2, col_p3 = st.columns([1.5, 1.5, 1.2])
     with col_p1:
@@ -862,7 +860,6 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
             st.rerun()
 
     st.markdown("---")
-
     st.markdown("### 📋 Client Portfolio Master Table (Indian Standard Time)")
     table_data = []
     now_ist = get_ist_now().date()
@@ -896,49 +893,12 @@ if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM"
         })
 
     st.dataframe(pd.DataFrame(table_data), use_container_width=True, height=350)
-
-    st.markdown("---")
-    st.markdown("### 🛠️ Instant User Entitlement Override")
-    
-    non_admin_usernames = [x[0] for x in all_users if x[0] != "tanmay_admin"]
-    if non_admin_usernames:
-        col_ov1, col_ov2, col_ov3 = st.columns([1.5, 1.5, 1])
-        with col_ov1:
-            target_user = st.selectbox("Select Client:", non_admin_usernames)
-        with col_ov2:
-            new_status_action = st.selectbox("Assign Action:", [
-                f"Grant Annual Enterprise (₹{current_yearly_price})",
-                f"Grant Monthly License (₹{current_monthly_price})",
-                "Reset 7-Day Free Trial",
-                "Expire / Lock Account"
-            ])
-        with col_ov3:
-            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            if st.button("Execute Override", type="primary", use_container_width=True):
-                c = conn.cursor()
-                now_str = get_ist_now_str()
-                if "Annual" in new_status_action:
-                    c.execute("UPDATE users SET status='approved', plan=? WHERE username=?", (f"Annual Enterprise (₹{current_yearly_price})", target_user))
-                elif "Monthly" in new_status_action:
-                    c.execute("UPDATE users SET status='approved', plan=? WHERE username=?", (f"Monthly License (₹{current_monthly_price})", target_user))
-                elif "Reset" in new_status_action:
-                    c.execute("UPDATE users SET status='trial', plan='Free Trial (7 Days)', created_at=? WHERE username=?", (now_str, target_user))
-                elif "Expire" in new_status_action:
-                    c.execute("UPDATE users SET status='expired' WHERE username=?", (target_user,))
-                conn.commit()
-                st.success(f"Updated status for {target_user} successfully!")
-                st.rerun()
-    else:
-        st.info("No client accounts registered yet.")
-
     st.stop()
 
-# ----------------- ADMIN: LICENSE QUEUE -----------------
 if st.session_state["role"] == "admin" and admin_mode == "License Approvals":
     st.markdown("## 💳 License Verification Queue")
     c = conn.cursor()
     pending_users = c.execute("SELECT username, phone, plan, txn_id, status FROM users WHERE status='pending'").fetchall()
-    
     if pending_users:
         st.info(f"Requests Awaiting Verification: {len(pending_users)}")
         for u_name, u_ph, u_plan, tx_id, stat in pending_users:
@@ -967,6 +927,7 @@ if uploaded_files:
         "Outstanding": 0.0,
         "Payables": 0.0,
         "Overdue": 0.0,
+        "Payables_Overdue": 0.0,
         "Closing_Stock": 0.0,
         "Direct_Expenses": 0.0,
         "Direct_Incomes": 0.0,
@@ -987,6 +948,7 @@ if uploaded_files:
     xml_stock_accumulator = []
     xml_expense_accumulator = []
     excel_receivable_accumulator = []
+    excel_payable_accumulator = []
 
     for f in uploaded_files:
         fdf, s_df, e_df = load_tally_file(f)
@@ -999,14 +961,16 @@ if uploaded_files:
         if not e_df.empty:
             xml_expense_accumulator.append(e_df)
 
-        vch_types = []
-        if "Vch Type" in fdf.columns:
-            vch_types = [str(x).lower() for x in fdf["Vch Type"].dropna().unique()]
-
-        if "receiv" in fname or "bill" in fname or "outstand" in fname:
+        # 1. Tally Bills Receivable File (e.g. Bills.xlsx)
+        if ("bill" in fname and "pay" not in fname and "pable" not in fname) or "receiv" in fname:
             excel_receivable_accumulator.append(fdf)
 
-        if fname.endswith('.xml'):
+        # 2. Tally Bills Payable File (e.g. pables.xls / payables.xlsx)
+        elif "pable" in fname or "payable" in fname or "creditor" in fname:
+            excel_payable_accumulator.append(fdf)
+
+        # 3. Direct Transactions.xml
+        elif fname.endswith('.xml'):
             s_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
             if not s_rows.empty:
                 business_data["Sales_DF"] = s_rows
@@ -1021,87 +985,12 @@ if uploaded_files:
                 business_data["Purchase_DF"] = p_rows
                 business_data["Purchase"] += p_rows["Amount"].sum()
 
-            py_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("payment|payab", na=False)]
-            if not py_rows.empty:
-                business_data["Payables_DF"] = py_rows
-                business_data["Payables"] += py_rows["Amount"].sum()
-                msme_overdue_xml = py_rows[py_rows["Days_Overdue"] >= 45]
-                business_data["MSME_Critical_Dues"] += msme_overdue_xml["Amount"].sum()
-
-            party_credits = {}
-            for _, vch in fdf.iterrows():
-                v_low = str(vch.get("Vch Type", "")).lower()
-                splits = vch.get("Splits", [])
-                
-                for sp in splits:
-                    p_k = sp["ledger"]
-                    amt = sp["amount"]
-                    if amt < 0 or any(k in v_low for k in ["receipt", "journal", "credit note"]):
-                        c_val = abs(amt)
-                        party_credits[p_k] = party_credits.get(p_k, 0.0) + c_val
-
-                if not splits and any(k in v_low for k in ["receipt", "journal", "credit note"]):
-                    p_main = vch.get("Party Name", "")
-                    if p_main:
-                        party_credits[p_main] = party_credits.get(p_main, 0.0) + float(vch.get("Amount", 0.0))
-
-            fifo_pending_bills = []
-            grouped_sales = s_rows.groupby("Party Name")
-
-            for party, p_sales in grouped_sales:
-                if any(k in party.lower() for k in ["bank", "cash", "gst", "tds", "round", "interest", "sales", "purchase"]):
-                    continue
-
-                total_credits = float(party_credits.get(party, 0.0))
-                sorted_bills = p_sales.sort_values(by="Date", ascending=True)
-
-                unpaid_bucket = total_credits
-
-                for _, bill in sorted_bills.iterrows():
-                    b_amt = float(bill["Amount"])
-                    if unpaid_bucket >= b_amt:
-                        unpaid_bucket -= b_amt
-                    else:
-                        remaining_due = b_amt - unpaid_bucket
-                        unpaid_bucket = 0.0
-                        if remaining_due > 10.0:
-                            fifo_pending_bills.append({
-                                "Party Name": party,
-                                "Pending Amount (₹)": remaining_due,
-                                "Bill Date": bill["Date"],
-                                "Ref Invoice": bill["Vch No."],
-                                "Days Overdue": bill["Days_Overdue"]
-                            })
-
-            if fifo_pending_bills:
-                fifo_df = pd.DataFrame(fifo_pending_bills)
-                business_data["Receivables_DF"] = fifo_df
-                business_data["Outstanding"] = fifo_df["Pending Amount (₹)"].sum()
-                
-                overdue_fifo = fifo_df[fifo_df["Days Overdue"] >= credit_days_threshold]
-                business_data["Overdue"] = overdue_fifo["Pending Amount (₹)"].sum()
-                business_data["Critical_Count"] = len(overdue_fifo)
-
         elif "stock" in fname or "inventory" in fname:
             business_data["Stock_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Closing_Stock"] = fdf["Amount"].sum()
 
-        elif "payable" in fname or "creditor" in fname:
-            business_data["Payables_DF"] = fdf
-            if "Amount" in fdf.columns:
-                business_data["Payables"] += fdf["Amount"].sum()
-            if "Days_Overdue" in fdf.columns:
-                msme_overdue = fdf[fdf["Days_Overdue"] >= 45]
-                if "Amount" in msme_overdue.columns:
-                    business_data["MSME_Critical_Dues"] += msme_overdue["Amount"].sum()
-
-        elif "purch" in fname or any("purch" in v for v in vch_types):
-            business_data["Purchase_DF"] = fdf
-            if "Amount" in fdf.columns:
-                business_data["Purchase"] += fdf["Amount"].sum()
-
-        elif "sale" in fname or any("sale" in v for v in vch_types) or "daybook" in fname:
+        elif "sale" in fname or "daybook" in fname:
             business_data["Sales_DF"] = fdf
             if "Amount" in fdf.columns:
                 business_data["Sales"] += fdf["Amount"].sum()
@@ -1109,13 +998,14 @@ if uploaded_files:
         elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
             business_data["PL_DF"] = fdf
 
+    # ----------------- PRIORITY 1: TALLY BILLS RECEIVABLE (BILLS.XLSX) -----------------
     if excel_receivable_accumulator:
         rec_excel = pd.concat(excel_receivable_accumulator, ignore_index=True)
         rec_clean_rows = []
         for _, rx in rec_excel.iterrows():
             p_val = float(rx.get("Pending_Amount", rx.get("Amount", 0.0)))
             d_val = float(rx.get("Days_Overdue", 0))
-            if p_val > 5.0:
+            if p_val > 0.01:
                 rec_clean_rows.append({
                     "Party Name": str(rx.get("Party Name", "Party")),
                     "Pending Amount (₹)": p_val,
@@ -1130,6 +1020,30 @@ if uploaded_files:
             ov_dir = direct_rec_df[direct_rec_df["Days Overdue"] >= credit_days_threshold]
             business_data["Overdue"] = ov_dir["Pending Amount (₹)"].sum()
             business_data["Critical_Count"] = len(ov_dir)
+
+    # ----------------- PRIORITY 2: TALLY BILLS PAYABLE (PABLES.XLS) -----------------
+    if excel_payable_accumulator:
+        pay_excel = pd.concat(excel_payable_accumulator, ignore_index=True)
+        pay_clean_rows = []
+        for _, px in pay_excel.iterrows():
+            p_amt = float(px.get("Pending_Amount", px.get("Amount", 0.0)))
+            p_days = float(px.get("Days_Overdue", 0))
+            if p_amt > 0.01:
+                pay_clean_rows.append({
+                    "Party Name": str(px.get("Party Name", "Supplier")),
+                    "Pending Amount (₹)": p_amt,
+                    "Bill Date": str(px.get("Date", "")),
+                    "Ref Invoice": str(px.get("Vch No.", "")),
+                    "Days Overdue": int(p_days)
+                })
+        if pay_clean_rows:
+            direct_pay_df = pd.DataFrame(pay_clean_rows)
+            business_data["Payables_DF"] = direct_pay_df
+            business_data["Payables"] = direct_pay_df["Pending Amount (₹)"].sum()
+            
+            # MSME 45-Days Statutory Due check
+            msme_overdue = direct_pay_df[direct_pay_df["Days Overdue"] >= 45]
+            business_data["MSME_Critical_Dues"] = msme_overdue["Pending Amount (₹)"].sum()
 
     if business_data["Stock_DF"] is None and xml_stock_accumulator:
         consolidated_stk = pd.concat(xml_stock_accumulator, ignore_index=True)
@@ -1150,7 +1064,7 @@ if uploaded_files:
     gross_profit = (business_data["Sales"] + business_data["Direct_Incomes"] + business_data["Closing_Stock"]) - (business_data["Purchase"] + business_data["Direct_Expenses"])
     net_profit = (gross_profit + business_data["Indirect_Incomes"]) - business_data["Indirect_Expenses"]
 
-    # ----------------- AI RADAR -----------------
+    # ----------------- AI RADAR & HEALTH SCORE -----------------
     health_score = 100
     risk_warnings = []
     
@@ -1258,7 +1172,7 @@ if uploaded_files:
                     <span class="badge-chip badge-indigo">Pending Bills</span>
                 </div>
                 <div class="metric-val">₹{business_data['Outstanding']:,.2f}</div>
-                <div class="metric-sub" style="color: #818CF8;">● Real Unpaid Receivables</div>
+                <div class="metric-sub" style="color: #818CF8;">● Tally Verified Receivables</div>
             </div>
         """, unsafe_allow_html=True)
     with k3:
@@ -1276,11 +1190,11 @@ if uploaded_files:
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">
-                    <span>Vendor Exposure</span>
-                    <span class="badge-chip badge-amber">Payables</span>
+                    <span>Vendor Payables</span>
+                    <span class="badge-chip badge-amber">pables.xls</span>
                 </div>
                 <div class="metric-val">₹{business_data['Payables']:,.2f}</div>
-                <div class="metric-sub" style="color: #FBBF24;">● Supplier Liabilities</div>
+                <div class="metric-sub" style="color: #FBBF24;">● Supplier Liabilities (Pending Bills)</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -1360,7 +1274,7 @@ if uploaded_files:
             audit_summary_df.to_excel(writer, sheet_name="CA_Audit_Summary", index=False)
             if business_data["Receivables_DF"] is not None and not business_data["Receivables_DF"].empty:
                 business_data["Receivables_DF"].to_excel(writer, sheet_name="Debtors_Ageing", index=False)
-            if business_data["Payables_DF"] is not None:
+            if business_data["Payables_DF"] is not None and not business_data["Payables_DF"].empty:
                 business_data["Payables_DF"].to_excel(writer, sheet_name="Creditors_MSME", index=False)
             if business_data["Stock_DF"] is not None:
                 business_data["Stock_DF"].to_excel(writer, sheet_name="Stock_Summary", index=False)
@@ -1374,12 +1288,12 @@ if uploaded_files:
             type="primary"
         )
 
-    # Detailed Sub-Ledgers
+    # Detailed Sub-Ledgers Tabs
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Sales Register", 
         "📦 Purchase Register", 
         "⚠️ Bills Receivable & WhatsApp Recovery", 
-        "🏢 Payables (Creditors & MSME)",
+        "🏢 Bills Payable (Creditors & MSME)",
         "📋 Stock Summary",
         "⚖️ Profit & Loss A/c"
     ])
@@ -1437,15 +1351,16 @@ if uploaded_files:
                     """, unsafe_allow_html=True)
 
             st.dataframe(r_df, use_container_width=True, height=350)
-            st.caption("💡 **Tip**: For 100% exact Tally screen match with opening balances, you can also drop the Tally 'Bills Receivable' Excel/CSV export.")
         else:
             st.success("🎉 All customer invoices are cleared and settled! Zero pending debtors.")
 
     with tab4:
-        if business_data["Payables_DF"] is not None:
+        # ----------------- TRUE BILLS PAYABLE (PABLES.XLS) CLEAN VIEW -----------------
+        if business_data["Payables_DF"] is not None and not business_data["Payables_DF"].empty:
+            st.markdown("#### 🏢 Vendor Outstanding Bills (Payables)")
             st.dataframe(business_data["Payables_DF"], use_container_width=True, height=400)
         else:
-            st.info("Creditor & MSME outstandings will populate once data is uploaded.")
+            st.info("Upload 'pables.xls' (Tally Bills Payable export) to view exact supplier outstandings.")
 
     with tab5:
         if business_data["Stock_DF"] is not None and not business_data["Stock_DF"].empty:
