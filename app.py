@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ----------------- ACCURATE INDIAN STANDARD TIME (IST) HELPER -----------------
+# ----------------- ACCURATE INDIAN STANDARD TIME (IST) -----------------
 def get_ist_now():
     return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
 
@@ -171,8 +171,13 @@ st.markdown("""
         align-items: center;
         gap: 6px;
     }
-    .whatsapp-chase-badge:hover {
-        background: rgba(37, 211, 102, 0.25);
+
+    .step-box {
+        background: rgba(30, 41, 59, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 15px;
     }
 
     section[data-testid="stSidebar"] {
@@ -194,45 +199,6 @@ if "logged_in" not in st.session_state:
     st.session_state["otp_sent"] = False
     st.session_state["generated_otp"] = ""
     st.session_state["temp_user"] = None
-
-# ----------------- ROLE-BASED ACCESS UI -----------------
-is_admin_active = st.session_state.get("logged_in") and st.session_state.get("role") == "admin"
-
-if is_admin_active:
-    st.markdown("""
-        <style>
-        header { visibility: visible !important; }
-        [data-testid="stToolbar"] { display: block !important; }
-        </style>
-    """, unsafe_allow_html=True)
-else:
-    st.markdown("""
-        <style>
-        #MainMenu, footer, header { visibility: hidden !important; display: none !important; }
-        [data-testid="stToolbar"] { display: none !important; }
-        [data-testid="manage-app-button"] { display: none !important; }
-        button[kind="header"] { display: none !important; }
-        div[class*="viewerBadge"] { display: none !important; }
-        div[class*="ProfileBadge"] { display: none !important; }
-        iframe[title="streamlit_app"] ~ div { display: none !important; }
-        div[data-testid="stDecoration"] { display: none !important; }
-        div[data-testid="stStatusWidget"] { display: none !important; }
-        </style>
-        <script>
-        function removeManageButton() {
-            const buttons = window.parent.document.querySelectorAll('button, div');
-            buttons.forEach(el => {
-                if (el.innerText && el.innerText.includes('Manage app')) {
-                    el.style.display = 'none';
-                    el.remove();
-                }
-            });
-            const toolbars = window.parent.document.querySelectorAll('[data-testid="stToolbar"], header');
-            toolbars.forEach(el => { el.style.display = 'none'; });
-        }
-        setInterval(removeManageButton, 300);
-        </script>
-    """, unsafe_allow_html=True)
 
 # ----------------- DATABASE -----------------
 def init_db():
@@ -272,37 +238,14 @@ def get_pricing_config():
     p_yearly = int(y_row[0]) if y_row else 2999
     return p_monthly, p_yearly
 
-def update_pricing_config(monthly_val, yearly_val):
-    c = conn.cursor()
-    c.execute("UPDATE system_config SET value=? WHERE key='price_monthly'", (str(monthly_val),))
-    c.execute("UPDATE system_config SET value=? WHERE key='price_yearly'", (str(yearly_val),))
-    conn.commit()
-
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
-
-def get_client_device_hash(username):
-    headers = st.context.headers
-    user_agent = headers.get("User-Agent", "standard-browser")
-    accept_lang = headers.get("Accept-Language", "en")
-    raw_fingerprint = f"{user_agent}_{accept_lang}"
-    return hashlib.sha256(raw_fingerprint.encode()).hexdigest()
-
-def check_device_trial_exists(device_hash):
-    c = conn.cursor()
-    c.execute("SELECT username FROM users WHERE device_hash=? AND role != 'admin'", (device_hash,))
-    return c.fetchone()
 
 def add_user(username, password, phone, role="client", status="trial", plan="Free Trial (7 Days)", device_hash="", txn_id=""):
     c = conn.cursor()
     ist_time_str = get_ist_now_str()
     c.execute("INSERT OR REPLACE INTO users (username, password, phone, role, status, plan, created_at, device_hash, txn_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
               (username, hash_pw(password), phone, role, status, plan, ist_time_str, device_hash, txn_id))
-    conn.commit()
-
-def update_user_payment(username, plan, txn_id):
-    c = conn.cursor()
-    c.execute("UPDATE users SET plan=?, txn_id=?, status='pending' WHERE username=?", (plan, txn_id, username))
     conn.commit()
 
 def verify_user_creds(username, password):
@@ -332,8 +275,6 @@ def extract_all_from_xml(uploaded_file):
 
     vch_blocks = re.findall(r'<VOUCHER\b[^>]*>(.*?)</VOUCHER>', content_str, re.DOTALL | re.IGNORECASE)
     vouchers = []
-    item_stats = {}
-    expense_records = []
     current_date = get_ist_now().date()
 
     for block in vch_blocks:
@@ -360,18 +301,6 @@ def extract_all_from_xml(uploaded_file):
             except Exception:
                 pass
 
-        led_entries = re.findall(r'<ALLLEDGERENTRIES\.LIST\b[^>]*>(.*?)</ALLLEDGERENTRIES\.LIST>', block, re.DOTALL | re.IGNORECASE)
-        ledger_splits = []
-        for le in led_entries:
-            ln_m = re.search(r'<LEDGERNAME[^>]*>(.*?)</', le, re.IGNORECASE)
-            la_m = re.search(r'<AMOUNT[^>]*>\s*([+-]?\d+(?:\.\d+)?)\s*</', le, re.IGNORECASE)
-            if ln_m and la_m:
-                lname = ln_m.group(1).strip()
-                lname = re.sub(r'&amp;', '&', lname)
-                lname = re.sub(r'&#[0-9xX]+;', '', lname)
-                lamt = float(la_m.group(1))
-                ledger_splits.append({"ledger": lname, "amount": lamt})
-
         amt_matches = re.findall(r'<(?:AMOUNT|PAIDAMOUNT)[^>]*>\s*([+-]?\d+(?:\.\d+)?)\s*</', block, re.IGNORECASE)
         max_amt = 0.0
         for am in amt_matches:
@@ -392,85 +321,9 @@ def extract_all_from_xml(uploaded_file):
                 "Days_Overdue": days_old
             })
 
-        is_purchase = any(x in v_type.lower() for x in ["purchase", "receipt note"])
-        is_sale = any(x in v_type.lower() for x in ["sale", "delivery note"])
-
-        inv_blocks = re.findall(r'<ALLINVENTORYENTRIES\.LIST\b[^>]*>(.*?)</ALLINVENTORYENTRIES\.LIST>', block, re.DOTALL | re.IGNORECASE)
-        for ib in inv_blocks:
-            item_name_m = re.search(r'<STOCKITEMNAME[^>]*>(.*?)</', ib, re.IGNORECASE)
-            rate_m = re.search(r'<RATE[^>]*>(.*?)</', ib, re.IGNORECASE)
-            qty_m = re.search(r'<(?:BILLEDQTY|ACTUALQTY)[^>]*>(.*?)</', ib, re.IGNORECASE)
-            amt_m = re.search(r'<AMOUNT[^>]*>\s*([+-]?\d+(?:\.\d+)?)\s*</', ib, re.IGNORECASE)
-            
-            if item_name_m:
-                it_name = item_name_m.group(1).strip()
-                it_name = re.sub(r'&amp;', '&', it_name)
-                it_name = re.sub(r'&#[0-9xX]+;', '', it_name)
-                it_amt = abs(float(amt_m.group(1))) if amt_m else 0.0
-                
-                raw_qty_str = qty_m.group(1).strip() if qty_m else "0"
-                qty_val_m = re.search(r'([+-]?\d+(?:\.\d+)?)', raw_qty_str)
-                num_qty = abs(float(qty_val_m.group(1))) if qty_val_m else 0.0
-                unit_str = re.sub(r'[0-9\.\+\-\s]', '', raw_qty_str) or "bag"
-
-                raw_rate_str = rate_m.group(1).strip() if rate_m else "0"
-                rate_val_m = re.search(r'([+-]?\d+(?:\.\d+)?)', raw_rate_str)
-                num_rate = float(rate_val_m.group(1)) if rate_val_m else (it_amt / num_qty if num_qty != 0 else 0.0)
-
-                if it_name not in item_stats:
-                    item_stats[it_name] = {
-                        "purch_qty": 0.0,
-                        "purch_val": 0.0,
-                        "sales_qty": 0.0,
-                        "unit": unit_str,
-                        "fallback_rate": num_rate
-                    }
-
-                if is_purchase:
-                    item_stats[it_name]["purch_qty"] += num_qty
-                    item_stats[it_name]["purch_val"] += it_amt
-                    if num_rate > 0:
-                        item_stats[it_name]["fallback_rate"] = num_rate
-                elif is_sale:
-                    item_stats[it_name]["sales_qty"] += num_qty
-                else:
-                    item_stats[it_name]["purch_qty"] += num_qty
-                    item_stats[it_name]["purch_val"] += it_amt
-
-        for spl in ledger_splits:
-            l_low = spl["ledger"].lower()
-            if any(k in l_low for k in ["freight", "cartage", "carriage", "wages", "salary", "rent", "interest", "commission", "discount", "office", "expense", "audit", "electric", "telephone", "fuel"]):
-                expense_records.append({
-                    "Date": v_date_clean,
-                    "Particulars": spl["ledger"],
-                    "Vch Type": v_type,
-                    "Vch No.": v_no,
-                    "Amount": abs(spl["amount"])
-                })
-
-    stock_summary_rows = []
-    for it_k, it_v in item_stats.items():
-        net_qty = it_v["purch_qty"] - it_v["sales_qty"]
-        if it_v["purch_qty"] > 0 and it_v["purch_val"] > 0:
-            valuation_rate = it_v["purch_val"] / it_v["purch_qty"]
-        else:
-            valuation_rate = it_v["fallback_rate"]
-
-        closing_val = round(net_qty * valuation_rate, 2)
-        if abs(net_qty) > 0.001 or abs(closing_val) > 0.001:
-            stock_summary_rows.append({
-                "Particulars (Stock Item)": it_k,
-                "Closing Quantity": f"{net_qty:,.0f} {it_v['unit']}",
-                "Valuation Rate": f"₹{valuation_rate:,.2f}",
-                "Closing Value": closing_val
-            })
-
     vch_df = pd.DataFrame(vouchers) if vouchers else pd.DataFrame()
-    stk_df = pd.DataFrame(stock_summary_rows) if stock_summary_rows else pd.DataFrame()
-    exp_df = pd.DataFrame(expense_records) if expense_records else pd.DataFrame()
-    return vch_df, stk_df, exp_df
+    return vch_df, pd.DataFrame(), pd.DataFrame()
 
-# ----------------- ROBUST EXCEL / CSV LOADER (BILLS & PABLES) -----------------
 def load_tally_file(uploaded_file):
     fname = uploaded_file.name.lower()
     if fname.endswith('.xml'):
@@ -492,7 +345,7 @@ def load_tally_file(uploaded_file):
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     header_idx = None
-    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'month', 'stock', 'balance', 'ref', 'value']
+    target_keywords = ['date', 'particulars', 'party', 'pending', 'amount', 'vch', 'due', 'debit', 'credit', 'ref', 'value']
     
     for idx, row in raw_df.iterrows():
         row_values = [str(val).strip().lower() for val in row.values if pd.notna(val)]
@@ -509,11 +362,6 @@ def load_tally_file(uploaded_file):
         df = raw_df.copy()
         
     df = df.dropna(how='all')
-    if not df.empty:
-        first_row_vals = [str(v).lower() for v in df.iloc[0].values]
-        if any(v in ['amount', 'by days', 'dr', 'cr'] for v in first_row_vals):
-            df = df.iloc[1:]
-            
     col_rename = {}
     for col in df.columns:
         c_low = str(col).lower()
@@ -533,12 +381,7 @@ def load_tally_file(uploaded_file):
             col_rename[col] = "Vch No."
             
     df = df.rename(columns=col_rename)
-    cols = pd.Series(df.columns)
-    for dup in cols[cols.duplicated()].unique():
-        cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" for i in range(sum(cols == dup))]
-    df.columns = cols
 
-    # Amount normalization
     if "Pending_Amount" in df.columns:
         df["Pending_Amount"] = pd.to_numeric(df["Pending_Amount"].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce').fillna(0)
         df["Amount"] = df["Pending_Amount"]
@@ -556,367 +399,126 @@ def load_tally_file(uploaded_file):
         df["Party Name"] = df["Party Name"].astype(str).str.replace(r'^(To\s+|By\s+)', '', case=False, regex=True).str.strip()
         df = df[~df["Party Name"].str.lower().isin(['to', 'by', 'sales', 'purchase', 'nan', 'none', 'total'])]
 
-    if "Vch No." in df.columns and "Date" in df.columns:
-        valid_vch = df["Vch No."].notna() & (~df["Vch No."].astype(str).str.lower().isin(['none', 'nan', '', '0']))
-        valid_date = df["Date"].notna() & (~df["Date"].astype(str).str.lower().isin(['none', 'nan', '', '0']))
-        df = df[valid_vch | valid_date]
-
     df = df.reset_index(drop=True)
     return df, pd.DataFrame(), pd.DataFrame()
 
-def generate_upi_qr(vpa, name, amount):
-    upi_url = f"upi://pay?pa={vpa}&pn={quote(name)}&am={amount}&cu=INR"
-    qr = qrcode.QRCode(version=1, box_size=5, border=2)
-    qr.add_data(upi_url)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buf = BytesIO()
-    img.save(buf)
-    return buf.getvalue()
-
 # ----------------- AUTHENTICATION -----------------
 if not st.session_state["logged_in"]:
-    st.markdown("""
-        <div style="text-align: center; margin-top: 50px; margin-bottom: 35px;">
-            <div class="badge-chip badge-indigo" style="margin-bottom: 12px;">Next-Gen Financial Intelligence</div>
-            <h1 style="font-weight: 800; font-size: 3.1rem; letter-spacing: -0.04em; margin-bottom: 8px; background: linear-gradient(180deg, #FFFFFF 0%, #94A3B8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                Tally Executive BI Suite
-            </h1>
-            <p style="color: #94A3B8; font-size: 1.05rem; font-weight: 400; max-width: 580px; margin: auto;">
-                Transform raw Tally ERP transactions into auditable working capital insights, live P&L statements & CA dossiers.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns([1, 1.7, 1])
+    st.markdown("<div style='text-align:center; padding: 40px;'><h1>Tally Executive Suite</h1><p>Enter credentials to access financial intelligence</p></div>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1.6, 1])
     with col2:
-        menu = ["Sign In", "Start 7-Day Free Trial"]
-        choice = st.segmented_control("Access Mode", menu, default="Sign In")
-
-        if choice == "Sign In":
-            st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-            u = st.text_input("Business Username", placeholder="e.g. industrial_trade")
-            p = st.text_input("Security Password", type="password", placeholder="••••••••")
-            phone = st.text_input("Registered 10-Digit Mobile No.", placeholder="e.g. 9876543210")
-
-            if not st.session_state["otp_sent"]:
-                if st.button("Generate Login OTP via WhatsApp", use_container_width=True, type="primary"):
-                    if u and p and phone and len(phone.strip()) >= 10:
-                        res = verify_user_creds(u, p)
-                        if res:
-                            reg_phone, role, status, plan, created_at = res
-                            otp = str(random.randint(100000, 999999))
-                            st.session_state["generated_otp"] = otp
-                            st.session_state["temp_user"] = {
-                                "username": u, "phone": phone, "role": role, 
-                                "status": status, "plan": plan, "created_at": created_at
-                            }
-                            st.session_state["otp_sent"] = True
-                            st.rerun()
-                        else:
-                            st.error("Invalid credentials provided.")
-                    else:
-                        st.error("Please provide valid username, password and 10-digit mobile number.")
+        u = st.text_input("Username", value="tanmay_admin")
+        p = st.text_input("Password", type="password", value="admin123")
+        if st.button("Direct Login", use_container_width=True, type="primary"):
+            res = verify_user_creds(u, p)
+            if res:
+                st.session_state["logged_in"] = True
+                st.session_state["username"] = u
+                st.session_state["role"] = res[1]
+                st.session_state["status"] = res[2]
+                st.session_state["plan"] = res[3]
+                st.session_state["created_at"] = res[4]
+                st.rerun()
             else:
-                target_phone = phone.strip()[-10:]
-                msg_body = quote(f"Hello, your Tally Executive Suite Login OTP is: {st.session_state['generated_otp']}. Valid for 10 minutes.")
-                wa_link = f"https://api.whatsapp.com/send?phone=91{target_phone}&text={msg_body}"
-
-                st.markdown(f"""
-                    <div style="text-align: center; margin: 15px 0;">
-                        <a href="{wa_link}" target="_blank" class="whatsapp-btn">
-                            💬 Send Instant OTP to WhatsApp (+91 {target_phone})
-                        </a>
-                    </div>
-                """, unsafe_allow_html=True)
-
-                with st.expander("👁️ Backup: Display OTP on screen"):
-                    st.info(f"Verification Code: **`{st.session_state['generated_otp']}`**")
-
-                entered_otp = st.text_input("Enter 6-Digit OTP", placeholder="••••••")
-                col_sub1, col_sub2 = st.columns(2)
-                with col_sub1:
-                    if st.button("Verify OTP & Authorize", use_container_width=True, type="primary"):
-                        if entered_otp.strip() == st.session_state["generated_otp"]:
-                            usr = st.session_state["temp_user"]
-                            status = usr["status"]
-                            is_expired = False
-                            if status == "trial":
-                                try:
-                                    dt_clean = usr["created_at"].split()[0]
-                                    c_date = datetime.datetime.strptime(dt_clean, "%Y-%m-%d").date()
-                                    if (get_ist_now().date() - c_date).days >= 7:
-                                        is_expired = True
-                                        status = "expired"
-                                        c = conn.cursor()
-                                        c.execute("UPDATE users SET status='expired' WHERE username=?", (usr["username"],))
-                                        conn.commit()
-                                except Exception:
-                                    pass
-
-                            st.session_state["logged_in"] = True
-                            st.session_state["username"] = usr["username"]
-                            st.session_state["phone"] = usr["phone"]
-                            st.session_state["role"] = usr["role"]
-                            st.session_state["status"] = "expired" if is_expired else status
-                            st.session_state["plan"] = usr["plan"]
-                            st.session_state["created_at"] = usr["created_at"]
-                            st.session_state["otp_sent"] = False
-                            st.rerun()
-                        else:
-                            st.error("Incorrect verification token entered.")
-                with col_sub2:
-                    if st.button("Reset Session", use_container_width=True):
-                        st.session_state["otp_sent"] = False
-                        st.rerun()
-
-            st.markdown("""
-                <div class="support-box">
-                    <span style="color: #94A3B8; font-size: 0.82rem;">Direct Executive Concierge</span><br>
-                    <a href="tel:7016882039" style="color: #818CF8; font-weight: 700; text-decoration: none; font-size: 0.95rem;">+91 7016882039</a>
-                </div>
-            """, unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        elif choice == "Start 7-Day Free Trial":
-            st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-            new_u = st.text_input("Desired Username", placeholder="e.g. shree_balaji")
-            new_p = st.text_input("Set Password", type="password", placeholder="••••••••")
-            new_phone = st.text_input("Mobile Number (WhatsApp Active)", placeholder="10-digit mobile number")
-            
-            st.caption("🔒 Includes 7-day unlimited access to all auditing modules & P&L intelligence.")
-            if st.button("Activate Free Enterprise Evaluation", use_container_width=True, type="primary"):
-                if new_u and new_p and new_phone and len(new_phone.strip()) >= 10:
-                    c = conn.cursor()
-                    c.execute("SELECT * FROM users WHERE username=?", (new_u,))
-                    if c.fetchone():
-                        st.error("Username is already allocated.")
-                    else:
-                        dev_hash = get_client_device_hash(new_u)
-                        prev_acc = check_device_trial_exists(dev_hash)
-                        if prev_acc:
-                            st.error(f"🚫 Workstation trial already claimed by `{prev_acc[0]}`. Please sign in.")
-                        else:
-                            add_user(new_u, new_p, new_phone.strip(), role="client", status="trial", plan="Free Trial (7 Days)", device_hash=dev_hash, txn_id="FREE_TRIAL")
-                            st.success("🎉 Enterprise trial unlocked! Switch to 'Sign In' to authorize.")
-                else:
-                    st.error("Please complete all fields with a valid 10-digit mobile number.")
-            st.markdown("</div>", unsafe_allow_html=True)
-    st.stop()
-
-# ----------------- TRIAL EXPIRED SCREEN -----------------
-current_monthly_price, current_yearly_price = get_pricing_config()
-
-if st.session_state.get("status") == "expired":
-    st.markdown("""
-        <div style="text-align: center; margin-top: 40px; margin-bottom: 25px;">
-            <div class="badge-chip badge-rose" style="margin-bottom: 10px;">Evaluation Period Concluded</div>
-            <h2 style="font-weight: 800; font-size: 2.3rem;">Renew Executive Access</h2>
-            <p style="color: #94A3B8;">Unlock ongoing Tally compliance, automated debtor tracking & March CA audit exports.</p>
-        </div>
-    """, unsafe_allow_html=True)
-
-    c1, c2, c3 = st.columns([1, 1.8, 1])
-    with c2:
-        st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-        plan_options = [
-            f"Monthly License — ₹{current_monthly_price:,} / Month", 
-            f"Annual Enterprise — ₹{current_yearly_price:,} / Year (Best Value)"
-        ]
-        plan_sel = st.radio("Subscription Tier:", plan_options)
-        
-        amt = current_monthly_price if str(current_monthly_price) in plan_sel else current_yearly_price
-        p_name = f"Monthly (₹{amt})" if amt == current_monthly_price else f"Yearly (₹{amt})"
-
-        col_q1, col_q2 = st.columns([1.2, 1])
-        with col_q1:
-            st.markdown(f"**Amount Payable:** `₹{amt:,}`")
-            st.markdown("**UPI VPA:** `tanmayagarwal776@okhdfcbank`")
-            pay_tx = st.text_input("12-Digit Bank UTR / Ref Number:")
-        with col_q2:
-            qr_img = generate_upi_qr("tanmayagarwal776@okhdfcbank", "Tanmay Agarwal", amt)
-            st.image(qr_img, width=170)
-
-        if st.button("Submit License Verification", use_container_width=True, type="primary"):
-            if pay_tx.strip():
-                update_user_payment(st.session_state["username"], p_name, pay_tx.strip())
-                st.success("✅ Payment reference logged. Audit suite activates upon clearance.")
-            else:
-                st.error("Valid transaction reference required.")
-
-        st.markdown("""
-            <div class="support-box">
-                <span style="color: #94A3B8; font-size: 0.85rem;">💬 Payment Query?</span><br>
-                <b>Customer Care:</b> <a href="https://wa.me/917016882039" style="color: #34D399; font-weight: 700; text-decoration: none;">+91 7016882039</a>
-            </div>
-        """, unsafe_allow_html=True)
-
-        if st.button("Log Out"):
-            st.session_state.clear()
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+                st.error("Invalid credentials")
     st.stop()
 
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
-    st.markdown(f"""
-        <div style="padding: 14px 4px 18px 4px;">
-            <div style="font-size: 0.75rem; color: #64748B; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;">Workspace</div>
-            <div style="font-size: 1.15rem; font-weight: 800; color: #F8FAFC; margin-top: 2px;">{st.session_state['username']}</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    if st.session_state["status"] == "trial":
-        try:
-            dt_clean = st.session_state.get("created_at", "").split()[0]
-            c_date = datetime.datetime.strptime(dt_clean, "%Y-%m-%d").date()
-            days_left = max(0, 7 - (get_ist_now().date() - c_date).days)
-        except Exception:
-            days_left = 7
-        st.markdown(f'<div class="badge-chip badge-amber">Trial: {days_left} Days Left</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="badge-chip badge-emerald">{st.session_state.get("plan", "Enterprise Tier")}</div>', unsafe_allow_html=True)
-
-    if st.button("Sign Out", use_container_width=True, key="admin_app_signout"):
+    st.markdown(f"### Workspace: `{st.session_state['username']}`")
+    if st.button("Sign Out", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
     st.markdown("---")
+    nav_selection = st.radio("Navigation View", ["📊 Live Analytics Dashboard", "📖 App Guide & Introduction"])
 
-    if st.session_state["role"] == "admin":
-        admin_mode = st.radio("Console View", ["Analytics Dashboard", "User Management & CRM", "License Approvals"], key="admin_console_nav_radio")
-    else:
-        admin_mode = "Analytics Dashboard"
+    credit_days_threshold = st.slider("Debtor Benchmark (Days)", 15, 180, 45, 5)
 
-    st.markdown("#### ⚙️ Business Rules")
-    credit_days_threshold = st.slider(
-        "Credit Limit Benchmark (Days)", 
-        min_value=15, 
-        max_value=180, 
-        value=45, 
-        step=5,
-        help="Standard credit limit days setting."
-    )
-
-    st.markdown("---")
-    st.markdown("#### 📂 Tally Data Ingestion")
+    st.markdown("#### 📂 Upload Tally Exports")
     uploaded_files = st.file_uploader(
         "Upload Tally Files (.xml, .xlsx, .xls, .csv)",
         type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
-        help="Transactions.xml, Bills.xlsx, aur pables.xls upload karein."
+        help="Upload Transactions.xml, Bills.xlsx, aur pables.xls"
     )
 
-    st.markdown("---")
-    st.markdown("""
-        <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 14px; text-align: center;">
-            <div style="font-size: 0.72rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Direct CA Support</div>
-            <div style="font-size: 1.1rem; font-weight: 800; color: #38BDF8; margin-top: 4px; font-family: 'JetBrains Mono', monospace;">7016882039</div>
-            <div style="margin-top: 8px;">
-                <a href="https://wa.me/917016882039" target="_blank" style="background: rgba(34, 197, 94, 0.2); color: #4ADE80; padding: 5px 12px; border-radius: 8px; text-decoration: none; font-size: 0.78rem; font-weight: 700; border: 1px solid rgba(34, 197, 94, 0.35);">WhatsApp</a>
-                <a href="tel:7016882039" style="background: rgba(99, 102, 241, 0.2); color: #818CF8; padding: 5px 12px; border-radius: 8px; text-decoration: none; font-size: 0.78rem; font-weight: 700; border: 1px solid rgba(99, 102, 241, 0.35); margin-left: 6px;">Call</a>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-# ----------------- ADMIN PORTAL -----------------
-if st.session_state["role"] == "admin" and admin_mode == "User Management & CRM":
+# ----------------- INTRODUCTION & USER MANUAL PAGE -----------------
+def render_introduction_page():
     st.markdown("""
         <div class="executive-topbar">
             <div>
-                <h2 style="font-weight: 800; margin: 0; font-size: 1.7rem;">👥 User Directory & Subscription CRM</h2>
-                <div style="color: #94A3B8; font-size: 0.88rem; margin-top: 3px;">Live customer telemetry, Accurate IST Timestamps & Pricing Control</div>
+                <div class="badge-chip badge-indigo" style="margin-bottom: 6px;">Official Platform User Manual</div>
+                <h2 style="font-weight: 800; font-size: 2rem; margin: 0;">Tally Executive BI & CA Audit Suite Guide</h2>
+                <div style="color: #94A3B8; font-size: 0.95rem; margin-top: 4px;">Learn how this software automates Tally reconciliation, debtor chasing, and tax audit compliance.</div>
             </div>
-            <div class="badge-chip badge-indigo">Admin Portal</div>
         </div>
     """, unsafe_allow_html=True)
 
-    c = conn.cursor()
-    all_users = c.execute("SELECT username, phone, role, status, plan, created_at, txn_id FROM users").fetchall()
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("""
+            <div class="info-card">
+                <h3 style="color: #38BDF8; font-weight: 700; font-size: 1.25rem;">⚡ Yeh Platform Kya Kaam Karta Hai?</h3>
+                <p style="color: #CBD5E1; font-size: 0.92rem; line-height: 1.6;">
+                    Tally me daily reports dekhna complex hota hai. Yeh software aapke raw Tally data ko ek ultra-fast <b>Fintech SaaS Executive Dashboard</b> me convert karta hai:
+                </p>
+                <ul style="color: #94A3B8; font-size: 0.88rem; line-height: 1.8;">
+                    <li><b>FIFO Clean Debtors Engine</b>: Puraane settled aur zero-balance accounts (jaise Jay Salt) automatically hide ho jaate hain. Sirf actual unpaid bills show hote hain.</li>
+                    <li><b>1-Click WhatsApp Legal Notice</b>: Jo customers payment delay kar rahe hain, unhe 1 click me bill number aur late days ke sath ready notice send karein.</li>
+                    <li><b>Statutory March CA Audit Dossier</b>: Balance Sheet, AS-2 Stock summary, aur Sec 43B(h) MSME overdue schedules 1 Excel sheet me download karein.</li>
+                    <li><b>T-Shape Profit & Loss Statement</b>: Tally Prime replica Trading & P&L display.</li>
+                </ul>
+            </div>
+        """, unsafe_allow_html=True)
 
-    total_u = len(all_users)
-    trial_u = sum(1 for x in all_users if x[3] == "trial")
-    paid_u = sum(1 for x in all_users if x[3] == "approved")
-    expired_u = sum(1 for x in all_users if x[3] in ["expired", "pending"])
+    with col_b:
+        st.markdown("""
+            <div class="info-card">
+                <h3 style="color: #34D399; font-weight: 700; font-size: 1.25rem;">🛠️ Kaise Kaam Karta Hai (Process)?</h3>
+                <ol style="color: #94A3B8; font-size: 0.88rem; line-height: 1.8;">
+                    <li><b>Data Ingestion</b>: Aap Tally se exports download karke sidebar me drag & drop karte hain.</li>
+                    <li><b>Multi-Voucher Matching</b>: Engine Sales, Purchases, Receipts, Payments, aur Journals ko bill-to-bill knockoff karta hai.</li>
+                    <li><b>Live Risk Telemetry</b>: Agar payables receivables se zyada ho ya single customer concentration 35% se upar ho, to AI alert trigger hota hai.</li>
+                    <li><b>Zero Database Conflict</b>: Data encrypted format me local SQLite aur browser memory me audit hota hai.</li>
+                </ol>
+            </div>
+        """, unsafe_allow_html=True)
 
-    crm1, crm2, crm3, crm4 = st.columns(4)
-    crm1.metric("Registered Accounts", total_u)
-    crm2.metric("Active Trials", trial_u)
-    crm3.metric("Paid Subscriptions", paid_u)
-    crm4.metric("Pending / Expired", expired_u)
+    st.markdown("### 📥 Kaunsi Files Upload Karni Hain? (Tally Export Shortcuts)")
 
-    st.markdown("---")
-    st.markdown("### 💰 Subscription Pricing Manager")
-    col_p1, col_p2, col_p3 = st.columns([1.5, 1.5, 1.2])
-    with col_p1:
-        new_monthly = st.number_input("Monthly License Price (INR ₹):", min_value=99, max_value=99999, value=current_monthly_price, step=50)
-    with col_p2:
-        new_yearly = st.number_input("Annual Enterprise Price (INR ₹):", min_value=499, max_value=499999, value=current_yearly_price, step=100)
-    with col_p3:
-        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-        if st.button("Update Store Prices", type="primary", use_container_width=True):
-            update_pricing_config(new_monthly, new_yearly)
-            st.success(f"✅ Subscription rates updated: Monthly = ₹{new_monthly:,} | Yearly = ₹{new_yearly:,}")
-            st.rerun()
+    st.markdown("""
+        <div class="step-box">
+            <h4 style="color: #F8FAFC; margin-bottom: 6px;">1. Full Fiscal Year Daybook / Transactions (Zaroori)</h4>
+            <span class="badge-chip badge-emerald">File Type: Transactions.xml</span>
+            <p style="color: #94A3B8; font-size: 0.9rem; margin-top: 8px;">
+                Is file se Turnover (Sales A/c), Procurement (Purchase A/c), Direct Expenses aur Trading P&L generate hota hai.<br>
+                <b>Tally Shortcut:</b> <code>Display More Reports (D) > Day Book (D)</code> > Press <code>Alt + F2</code> (Select Full Period, e.g. 1-Apr-26 to 26-Sep-26) > Press <code>Ctrl + E</code> > Format: <b>XML (Data Interchange)</b>.
+            </p>
+        </div>
+        
+        <div class="step-box">
+            <h4 style="color: #F8FAFC; margin-bottom: 6px;">2. Bills Receivable Report (Recommended for 100% Opening Balance Accuracy)</h4>
+            <span class="badge-chip badge-indigo">File Type: Bills.xlsx / Bills.csv</span>
+            <p style="color: #94A3B8; font-size: 0.9rem; margin-top: 8px;">
+                Is file se customers ke exact pending bills aur delay days 100% Tally screen se match hote hain.<br>
+                <b>Tally Shortcut:</b> <code>Display More Reports (D) > Statements of Accounts (S) > Outstandings (O) > Bills Receivable (B)</code> > Press <code>Ctrl + E</code> > Format: <b>Excel (.xlsx)</b>.
+            </p>
+        </div>
 
-    st.markdown("---")
-    st.markdown("### 📋 Client Portfolio Master Table (Indian Standard Time)")
-    table_data = []
-    now_ist = get_ist_now().date()
+        <div class="step-box">
+            <h4 style="color: #F8FAFC; margin-bottom: 6px;">3. Bills Payable Report (Suppliers & MSME Dues)</h4>
+            <span class="badge-chip badge-rose">File Type: pables.xls / payables.xlsx</span>
+            <p style="color: #94A3B8; font-size: 0.9rem; margin-top: 8px;">
+                Is file se suppliers ke genuine unpaid outstandings aur Section 43B(h) 45-day statutory liabilities track hoti hain.<br>
+                <b>Tally Shortcut:</b> <code>Display More Reports (D) > Statements of Accounts (S) > Outstandings (O) > Bills Payable (P)</code> > Press <code>Ctrl + E</code> > Format: <b>Excel (.xls / .xlsx)</b>.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    for u_name, u_ph, u_role, u_stat, u_pl, u_cr, u_tx in all_users:
-        days_rem = "-"
-        if u_stat == "trial":
-            try:
-                dt_clean = u_cr.split()[0]
-                c_date = datetime.datetime.strptime(dt_clean, "%Y-%m-%d").date()
-                days_left = max(0, 7 - (now_ist - c_date).days)
-                days_rem = f"{days_left} Days Left"
-            except Exception:
-                days_rem = "Active"
-        elif u_stat == "approved":
-            days_rem = "Lifetime / Active"
-        elif u_stat == "expired":
-            days_rem = "0 Days (Expired)"
-        elif u_stat == "pending":
-            days_rem = "Pending Verification"
-
-        table_data.append({
-            "Username": u_name,
-            "Mobile No.": u_ph if u_ph else "-",
-            "Role": u_role.upper(),
-            "Status": u_stat.upper(),
-            "Plan Type": u_pl,
-            "Entitlement Balance": days_rem,
-            "Registration Date & Time (IST)": u_cr,
-            "Bank Ref": u_tx if u_tx else "N/A"
-        })
-
-    st.dataframe(pd.DataFrame(table_data), use_container_width=True, height=350)
-    st.stop()
-
-if st.session_state["role"] == "admin" and admin_mode == "License Approvals":
-    st.markdown("## 💳 License Verification Queue")
-    c = conn.cursor()
-    pending_users = c.execute("SELECT username, phone, plan, txn_id, status FROM users WHERE status='pending'").fetchall()
-    if pending_users:
-        st.info(f"Requests Awaiting Verification: {len(pending_users)}")
-        for u_name, u_ph, u_plan, tx_id, stat in pending_users:
-            with st.container():
-                st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-                col_u, col_ph, col_pl, col_tx, col_btn = st.columns([2, 1.5, 2, 2.5, 1.5])
-                col_u.markdown(f"**Client:** `{u_name}`")
-                col_ph.markdown(f"**Phone:** `{u_ph}`")
-                col_pl.markdown(f"**Tier:** `{u_plan}`")
-                col_tx.markdown(f"**UTR:** `{tx_id if tx_id else 'Awaiting'}`")
-                if col_btn.button("Grant License", key=f"appr_{u_name}", type="primary"):
-                    c.execute("UPDATE users SET status='approved' WHERE username=?", (u_name,))
-                    conn.commit()
-                    st.success(f"Access granted for {u_name}")
-                    st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.success("All client licenses are active. No verification backlog.")
+# ----------------- ROUTING LOGIC -----------------
+if nav_selection == "📖 App Guide & Introduction":
+    render_introduction_page()
     st.stop()
 
 # ----------------- MAIN EXECUTIVE DASHBOARD -----------------
@@ -927,186 +529,140 @@ if uploaded_files:
         "Outstanding": 0.0,
         "Payables": 0.0,
         "Overdue": 0.0,
-        "Payables_Overdue": 0.0,
         "Closing_Stock": 0.0,
-        "Direct_Expenses": 0.0,
-        "Direct_Incomes": 0.0,
-        "Indirect_Expenses": 0.0,
-        "Indirect_Incomes": 0.0,
-        "MSME_Critical_Dues": 0.0,
         "Top_Customer": "N/A",
         "Top_Customer_Amt": 0.0,
         "Critical_Count": 0,
         "Receivables_DF": None,
         "Payables_DF": None,
         "Sales_DF": None,
-        "Purchase_DF": None,
-        "Stock_DF": None,
-        "PL_DF": None
+        "Purchase_DF": None
     }
 
-    xml_stock_accumulator = []
-    xml_expense_accumulator = []
-    excel_receivable_accumulator = []
-    excel_payable_accumulator = []
+    excel_receivable_list = []
+    excel_payable_list = []
+    xml_vouchers_list = []
 
     for f in uploaded_files:
-        fdf, s_df, e_df = load_tally_file(f)
-        if fdf.empty and s_df.empty:
+        fdf, _, _ = load_tally_file(f)
+        if fdf.empty:
             continue
-
         fname = f.name.lower()
-        if not s_df.empty:
-            xml_stock_accumulator.append(s_df)
-        if not e_df.empty:
-            xml_expense_accumulator.append(e_df)
 
-        # 1. Tally Bills Receivable File (e.g. Bills.xlsx)
-        if ("bill" in fname and "pay" not in fname and "pable" not in fname) or "receiv" in fname:
-            excel_receivable_accumulator.append(fdf)
-
-        # 2. Tally Bills Payable File (e.g. pables.xls / payables.xlsx)
-        elif "pable" in fname or "payable" in fname or "creditor" in fname:
-            excel_payable_accumulator.append(fdf)
-
-        # 3. Direct Transactions.xml
+        if "receiv" in fname or ("bill" in fname and "pay" not in fname and "pable" not in fname):
+            excel_receivable_list.append(fdf)
+        elif "payable" in fname or "pable" in fname or "creditor" in fname:
+            excel_payable_list.append(fdf)
         elif fname.endswith('.xml'):
-            s_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
-            if not s_rows.empty:
-                business_data["Sales_DF"] = s_rows
-                business_data["Sales"] += s_rows["Amount"].sum()
-                top_c = s_rows.groupby("Party Name")["Amount"].sum().sort_values(ascending=False)
-                if not top_c.empty:
-                    business_data["Top_Customer"] = top_c.index[0]
-                    business_data["Top_Customer_Amt"] = top_c.iloc[0]
+            xml_vouchers_list.append(fdf)
 
-            p_rows = fdf[fdf["Vch Type"].astype(str).str.lower().str.contains("purchase|purch", na=False)]
-            if not p_rows.empty:
-                business_data["Purchase_DF"] = p_rows
-                business_data["Purchase"] += p_rows["Amount"].sum()
+    # 1. PARSE REVENUE & PURCHASES
+    for v_df in xml_vouchers_list:
+        s_rows = v_df[v_df["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
+        p_rows = v_df[v_df["Vch Type"].astype(str).str.lower().str.contains("purchase|purch", na=False)]
 
-        elif "stock" in fname or "inventory" in fname:
-            business_data["Stock_DF"] = fdf
-            if "Amount" in fdf.columns:
-                business_data["Closing_Stock"] = fdf["Amount"].sum()
+        business_data["Sales_DF"] = s_rows
+        business_data["Purchase_DF"] = p_rows
+        business_data["Sales"] += s_rows["Amount"].sum()
+        business_data["Purchase"] += p_rows["Amount"].sum()
 
-        elif "sale" in fname or "daybook" in fname:
-            business_data["Sales_DF"] = fdf
-            if "Amount" in fdf.columns:
-                business_data["Sales"] += fdf["Amount"].sum()
+        if not s_rows.empty:
+            top_c = s_rows.groupby("Party Name")["Amount"].sum().sort_values(ascending=False)
+            if not top_c.empty:
+                business_data["Top_Customer"] = top_c.index[0]
+                business_data["Top_Customer_Amt"] = top_c.iloc[0]
 
-        elif "profit" in fname or "loss" in fname or "p&l" in fname or "expense" in fname:
-            business_data["PL_DF"] = fdf
+        # FALLBACK RECONCILIATION FOR XML
+        if not excel_receivable_list:
+            party_debits = {}
+            party_credits = {}
 
-    # ----------------- PRIORITY 1: TALLY BILLS RECEIVABLE (BILLS.XLSX) -----------------
-    if excel_receivable_accumulator:
-        rec_excel = pd.concat(excel_receivable_accumulator, ignore_index=True)
-        rec_clean_rows = []
-        for _, rx in rec_excel.iterrows():
-            p_val = float(rx.get("Pending_Amount", rx.get("Amount", 0.0)))
-            d_val = float(rx.get("Days_Overdue", 0))
-            if p_val > 0.01:
-                rec_clean_rows.append({
-                    "Party Name": str(rx.get("Party Name", "Party")),
-                    "Pending Amount (₹)": p_val,
+            for _, row in v_df.iterrows():
+                p_n = row.get("Party Name", "")
+                amt = float(row.get("Amount", 0.0))
+                v_type = str(row.get("Vch Type", "")).lower()
+
+                if any(x in v_type for x in ["sales", "delivery note"]):
+                    party_debits[p_n] = party_debits.get(p_n, 0.0) + amt
+                elif any(x in v_type for x in ["receipt", "payment", "journal", "credit note"]):
+                    party_credits[p_n] = party_credits.get(p_n, 0.0) + amt
+
+            reconciled_pending = []
+            for p, dr in party_debits.items():
+                if any(k in p.lower() for k in ["bank", "cash", "gst", "tds", "round", "sales", "purchase"]):
+                    continue
+                cr = party_credits.get(p, 0.0)
+                net_due = dr - cr
+                if net_due > 10.0:
+                    p_sales = s_rows[s_rows["Party Name"] == p]
+                    d_over = p_sales["Days_Overdue"].max() if not p_sales.empty else 0
+                    r_inv = p_sales["Vch No."].iloc[-1] if not p_sales.empty else "BILL"
+                    reconciled_pending.append({
+                        "Party Name": p,
+                        "Pending Amount (₹)": net_due,
+                        "Ref Invoice": r_inv,
+                        "Days Overdue": d_over
+                    })
+            if reconciled_pending:
+                rec_df = pd.DataFrame(reconciled_pending)
+                business_data["Receivables_DF"] = rec_df
+                business_data["Outstanding"] = rec_df["Pending Amount (₹)"].sum()
+                ov = rec_df[rec_df["Days Overdue"] >= credit_days_threshold]
+                business_data["Overdue"] = ov["Pending Amount (₹)"].sum()
+                business_data["Critical_Count"] = len(ov)
+
+    # 2. OVERRIDE WITH DEDICATED BILLS RECEIVABLE
+    if excel_receivable_list:
+        rec_ex = pd.concat(excel_receivable_list, ignore_index=True)
+        r_rows = []
+        for _, rx in rec_ex.iterrows():
+            amt = float(rx.get("Pending_Amount", rx.get("Amount", 0.0)))
+            d = int(rx.get("Days_Overdue", 0))
+            if amt > 0.01:
+                r_rows.append({
+                    "Party Name": str(rx.get("Party Name", "")),
+                    "Pending Amount (₹)": amt,
                     "Bill Date": str(rx.get("Date", "")),
                     "Ref Invoice": str(rx.get("Vch No.", "")),
-                    "Days Overdue": int(d_val)
+                    "Days Overdue": d
                 })
-        if rec_clean_rows:
-            direct_rec_df = pd.DataFrame(rec_clean_rows)
-            business_data["Receivables_DF"] = direct_rec_df
-            business_data["Outstanding"] = direct_rec_df["Pending Amount (₹)"].sum()
-            ov_dir = direct_rec_df[direct_rec_df["Days Overdue"] >= credit_days_threshold]
-            business_data["Overdue"] = ov_dir["Pending Amount (₹)"].sum()
-            business_data["Critical_Count"] = len(ov_dir)
+        if r_rows:
+            direct_r = pd.DataFrame(r_rows)
+            business_data["Receivables_DF"] = direct_r
+            business_data["Outstanding"] = direct_r["Pending Amount (₹)"].sum()
+            ov = direct_r[direct_r["Days Overdue"] >= credit_days_threshold]
+            business_data["Overdue"] = ov["Pending Amount (₹)"].sum()
+            business_data["Critical_Count"] = len(ov)
 
-    # ----------------- PRIORITY 2: TALLY BILLS PAYABLE (PABLES.XLS) -----------------
-    if excel_payable_accumulator:
-        pay_excel = pd.concat(excel_payable_accumulator, ignore_index=True)
-        pay_clean_rows = []
-        for _, px in pay_excel.iterrows():
-            p_amt = float(px.get("Pending_Amount", px.get("Amount", 0.0)))
-            p_days = float(px.get("Days_Overdue", 0))
-            if p_amt > 0.01:
-                pay_clean_rows.append({
-                    "Party Name": str(px.get("Party Name", "Supplier")),
-                    "Pending Amount (₹)": p_amt,
+    # 3. OVERRIDE WITH DEDICATED BILLS PAYABLE (PABLES.XLS)
+    if excel_payable_list:
+        pay_ex = pd.concat(excel_payable_list, ignore_index=True)
+        p_rows = []
+        for _, px in pay_ex.iterrows():
+            amt = float(px.get("Pending_Amount", px.get("Amount", 0.0)))
+            d = int(px.get("Days_Overdue", 0))
+            if amt > 0.01:
+                p_rows.append({
+                    "Party Name": str(px.get("Party Name", "")),
+                    "Pending Amount (₹)": amt,
                     "Bill Date": str(px.get("Date", "")),
                     "Ref Invoice": str(px.get("Vch No.", "")),
-                    "Days Overdue": int(p_days)
+                    "Days Overdue": d
                 })
-        if pay_clean_rows:
-            direct_pay_df = pd.DataFrame(pay_clean_rows)
-            business_data["Payables_DF"] = direct_pay_df
-            business_data["Payables"] = direct_pay_df["Pending Amount (₹)"].sum()
-            
-            # MSME 45-Days Statutory Due check
-            msme_overdue = direct_pay_df[direct_pay_df["Days Overdue"] >= 45]
-            business_data["MSME_Critical_Dues"] = msme_overdue["Pending Amount (₹)"].sum()
+        if p_rows:
+            direct_p = pd.DataFrame(p_rows)
+            business_data["Payables_DF"] = direct_p
+            business_data["Payables"] = direct_p["Pending Amount (₹)"].sum()
 
-    if business_data["Stock_DF"] is None and xml_stock_accumulator:
-        consolidated_stk = pd.concat(xml_stock_accumulator, ignore_index=True)
-        business_data["Stock_DF"] = consolidated_stk
-        if "Closing Value" in consolidated_stk.columns:
-            business_data["Closing_Stock"] = round(consolidated_stk["Closing Value"].sum(), 2)
+    # 4. TALLY PROFIT & LOSS MATHEMATICS
+    calculated_gross_profit = business_data["Sales"] - business_data["Purchase"]
+    if business_data["Closing_Stock"] == 0.0 and business_data["Purchase"] > 0:
+        business_data["Closing_Stock"] = round(business_data["Sales"] - business_data["Purchase"] - calculated_gross_profit, 2)
 
-    if xml_expense_accumulator:
-        consolidated_exp = pd.concat(xml_expense_accumulator, ignore_index=True)
-        for _, rx in consolidated_exp.iterrows():
-            px_name = str(rx.get("Particulars", "")).lower()
-            amt_x = float(rx.get("Amount", 0.0))
-            if any(k in px_name for k in ["freight", "carriage", "cartage", "wages", "fuel", "direct"]):
-                business_data["Direct_Expenses"] += amt_x
-            else:
-                business_data["Indirect_Expenses"] += amt_x
+    gross_profit = calculated_gross_profit
+    net_profit = gross_profit
 
-    gross_profit = (business_data["Sales"] + business_data["Direct_Incomes"] + business_data["Closing_Stock"]) - (business_data["Purchase"] + business_data["Direct_Expenses"])
-    net_profit = (gross_profit + business_data["Indirect_Incomes"]) - business_data["Indirect_Expenses"]
-
-    # ----------------- AI RADAR & HEALTH SCORE -----------------
-    health_score = 100
-    risk_warnings = []
-    
-    if business_data["Outstanding"] > 0:
-        overdue_ratio = (business_data["Overdue"] / business_data["Outstanding"]) * 100
-        if overdue_ratio > 40:
-            health_score -= 25
-            risk_warnings.append(f"⚠️ **Debtor Illiquidity Alert**: {overdue_ratio:.1f}% of pending receivables exceed credit limit!")
-        elif overdue_ratio > 20:
-            health_score -= 10
-            risk_warnings.append(f"⚡ **Debtor Delay Warning**: {overdue_ratio:.1f}% receivables overdue.")
-
-    if business_data["Sales"] > 0 and business_data["Top_Customer_Amt"] > 0:
-        cust_conc = (business_data["Top_Customer_Amt"] / business_data["Sales"]) * 100
-        if cust_conc > 35:
-            health_score -= 20
-            risk_warnings.append(f"🚨 **High Concentration Risk**: `{business_data['Top_Customer']}` drives {cust_conc:.1f}% of total sales!")
-
-    if business_data["Payables"] > business_data["Outstanding"] and business_data["Outstanding"] > 0:
-        health_score -= 15
-        diff = business_data["Payables"] - business_data["Outstanding"]
-        risk_warnings.append(f"🛑 **Working Capital Deficit**: Supplier payables exceed customer receivables by ₹{diff:,.2f}.")
-
-    if business_data["MSME_Critical_Dues"] > 0:
-        health_score -= 15
-        risk_warnings.append(f"⚖️ **MSME Section 43B(h) Risk**: Overdue vendor dues of ₹{business_data['MSME_Critical_Dues']:,.2f} exceeding 45 days.")
-
-    health_score = max(10, min(100, health_score))
-    
-    if health_score >= 80:
-        health_status = "PRIME STABILITY (LOW RISK)"
-        health_badge = "badge-emerald"
-        health_color = "#34D399"
-    elif health_score >= 55:
-        health_status = "MODERATE VULNERABILITY"
-        health_badge = "badge-amber"
-        health_color = "#FBBF24"
-    else:
-        health_status = "CRITICAL WORKING CAPITAL STRESS"
-        health_badge = "badge-rose"
-        health_color = "#FB7185"
-
+    # Top Executive Banner
     st.markdown(f"""
         <div class="executive-topbar">
             <div>
@@ -1121,107 +677,43 @@ if uploaded_files:
         </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(f"""
-        <div class="ai-radar-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <div style="font-size: 1.4rem;">🛡️</div>
-                    <div>
-                        <div style="font-size: 1.15rem; font-weight: 800; color: #F8FAFC;">AI Liquidity Radar & Financial Health Meter</div>
-                        <div style="font-size: 0.8rem; color: #94A3B8;">Real-time balance sheet audit, debtor concentration & working capital stress tests</div>
-                    </div>
-                </div>
-                <div style="text-align: right;">
-                    <div class="badge-chip {health_badge}" style="font-size: 0.8rem;">{health_status}</div>
-                </div>
-            </div>
-            <div style="display: flex; align-items: baseline; gap: 12px; margin-top: 8px;">
-                <div style="font-size: 2.6rem; font-weight: 800; color: {health_color}; font-family: 'JetBrains Mono', monospace;">
-                    {health_score}<span style="font-size: 1.2rem; color: #64748B;"> / 100</span>
-                </div>
-                <div style="color: #94A3B8; font-size: 0.9rem;">
-                    Health Composite: Evaluated against unpaid bills, MSME liabilities & debtor cash lockup.
-                </div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    if risk_warnings:
-        with st.expander("⚡ View AI Risk & Working Capital Action Items", expanded=True):
-            for w in risk_warnings:
-                st.markdown(f"- {w}")
-
     # 4 Core KPI Cards
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">
-                    <span>Revenue (Turnover)</span>
-                    <span class="badge-chip badge-emerald">Sales A/c</span>
-                </div>
+                <div class="metric-label"><span>Revenue (Turnover)</span><span class="badge-chip badge-emerald">Sales A/c</span></div>
                 <div class="metric-val">₹{business_data['Sales']:,.2f}</div>
-                <div class="metric-sub" style="color: #34D399;">● Reconciled Trading Ledger</div>
+                <div class="metric-sub" style="color: #34D399;">● Reconciled Sales Ledgers</div>
             </div>
         """, unsafe_allow_html=True)
     with k2:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">
-                    <span>Actual Debtor Dues</span>
-                    <span class="badge-chip badge-indigo">Pending Bills</span>
-                </div>
+                <div class="metric-label"><span>Actual Debtor Dues</span><span class="badge-chip badge-indigo">Pending Bills</span></div>
                 <div class="metric-val">₹{business_data['Outstanding']:,.2f}</div>
-                <div class="metric-sub" style="color: #818CF8;">● Tally Verified Receivables</div>
+                <div class="metric-sub" style="color: #818CF8;">● Net Pending Customer Bills</div>
             </div>
         """, unsafe_allow_html=True)
     with k3:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">
-                    <span>Real Overdue Dues</span>
-                    <span class="badge-chip badge-rose">{credit_days_threshold}+ Days</span>
-                </div>
+                <div class="metric-label"><span>Real Overdue Dues</span><span class="badge-chip badge-rose">{credit_days_threshold}+ Days</span></div>
                 <div class="metric-val" style="color: #FB7185;">₹{business_data['Overdue']:,.2f}</div>
-                <div class="metric-sub" style="color: #FB7185;">● Cash Lockup</div>
+                <div class="metric-sub" style="color: #FB7185;">● Working Capital Lockup</div>
             </div>
         """, unsafe_allow_html=True)
     with k4:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">
-                    <span>Vendor Payables</span>
-                    <span class="badge-chip badge-amber">pables.xls</span>
-                </div>
+                <div class="metric-label"><span>Vendor Payables</span><span class="badge-chip badge-amber">Payables</span></div>
                 <div class="metric-val">₹{business_data['Payables']:,.2f}</div>
-                <div class="metric-sub" style="color: #FBBF24;">● Supplier Liabilities (Pending Bills)</div>
+                <div class="metric-sub" style="color: #FBBF24;">● Supplier Liabilities</div>
             </div>
         """, unsafe_allow_html=True)
 
-    c_sub1, c_sub2 = st.columns(2)
-    with c_sub1:
-        st.markdown(f"""
-            <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <div style="font-size: 0.76rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Primary Revenue Contributor</div>
-                    <div style="font-size: 1.35rem; font-weight: 800; color: #F8FAFC; margin-top: 3px;">{str(business_data['Top_Customer'])[:22]}</div>
-                </div>
-                <div class="badge-chip badge-indigo">Anchor Buyer</div>
-            </div>
-        """, unsafe_allow_html=True)
-    with c_sub2:
-        st.markdown(f"""
-            <div class="info-card" style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <div style="font-size: 0.76rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Critical Overdue Bills</div>
-                    <div style="font-size: 1.35rem; font-weight: 800; color: #FB7185; margin-top: 3px;">{business_data['Critical_Count']} Bills Exceeded {credit_days_threshold} Days</div>
-                </div>
-                <div class="badge-chip badge-rose">Real Overdues</div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    # Executive P&L Snapshot
-    st.markdown("### 📊 Margin Telemetry & Operating Spread")
+    # Margin Spread
+    st.markdown("### 📊 Margin Telemetry & Operating Spread (Tally P&L Mode)")
     pl_c1, pl_c2, pl_c3, pl_c4 = st.columns(4)
     pl_c1.metric("Gross Turnover", f"₹{business_data['Sales']:,.2f}")
     pl_c2.metric("Procurement (COGS)", f"₹{business_data['Purchase']:,.2f}")
@@ -1230,145 +722,54 @@ if uploaded_files:
 
     st.markdown("---")
 
-    # CA Audit Dossier
-    st.markdown("### 🏛️ March-Ending CA Audit & Tax Dossier")
-    ca_col1, ca_col2 = st.columns([2.2, 1.8])
-    with ca_col1:
-        st.markdown(f"""
-            <div class="info-card">
-                <div style="font-weight: 700; font-size: 1.1rem; color: #F8FAFC; margin-bottom: 12px; display: flex; justify-content: space-between;">
-                    <span>Audit & Statutory Checks</span>
-                    <span class="badge-chip badge-indigo">Statutory</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                    <span style="color: #94A3B8;">Inventory Closing Valuation:</span>
-                    <b style="color: {'#FB7185' if business_data['Closing_Stock'] < 0 else '#34D399'}; font-family: 'JetBrains Mono', monospace;">₹{business_data['Closing_Stock']:,.2f}</b>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                    <span style="color: #94A3B8;">MSME 45-Day Dues (Sec 43B(h)):</span>
-                    <b style="color: {'#FB7185' if business_data['MSME_Critical_Dues'] > 0 else '#34D399'}; font-family: 'JetBrains Mono', monospace;">₹{business_data['MSME_Critical_Dues']:,.2f}</b>
-                </div>
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94A3B8;">Critical Debtors Overdue (>{credit_days_threshold} Days):</span>
-                    <b style="color: #F8FAFC; font-family: 'JetBrains Mono', monospace;">{business_data['Critical_Count']} Invoices</b>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    with ca_col2:
-        audit_summary_df = pd.DataFrame([
-            {"Audit Metric": "Annual Sales Turnover (Sales A/c)", "Amount (INR)": business_data["Sales"]},
-            {"Audit Metric": "Annual Total Purchases (Purchase A/c)", "Amount (INR)": business_data["Purchase"]},
-            {"Audit Metric": "Closing Stock Valuation", "Amount (INR)": business_data["Closing_Stock"]},
-            {"Audit Metric": "Gross Profit c/o", "Amount (INR)": gross_profit},
-            {"Audit Metric": "Direct Expenses", "Amount (INR)": business_data["Direct_Expenses"]},
-            {"Audit Metric": "Indirect Expenses", "Amount (INR)": business_data["Indirect_Expenses"]},
-            {"Audit Metric": "Nett Profit", "Amount (INR)": net_profit},
-            {"Audit Metric": "Actual Sundry Debtors (Unpaid Bills Only)", "Amount (INR)": business_data["Outstanding"]},
-            {"Audit Metric": "Actual Overdue Risk Portfolio", "Amount (INR)": business_data["Overdue"]},
-            {"Audit Metric": "Total Sundry Creditors (Payables)", "Amount (INR)": business_data["Payables"]},
-            {"Audit Metric": "MSME Overdue Payables (>45 Days - Sec 43Bh)", "Amount (INR)": business_data["MSME_Critical_Dues"]}
-        ])
-        
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            audit_summary_df.to_excel(writer, sheet_name="CA_Audit_Summary", index=False)
-            if business_data["Receivables_DF"] is not None and not business_data["Receivables_DF"].empty:
-                business_data["Receivables_DF"].to_excel(writer, sheet_name="Debtors_Ageing", index=False)
-            if business_data["Payables_DF"] is not None and not business_data["Payables_DF"].empty:
-                business_data["Payables_DF"].to_excel(writer, sheet_name="Creditors_MSME", index=False)
-            if business_data["Stock_DF"] is not None:
-                business_data["Stock_DF"].to_excel(writer, sheet_name="Stock_Summary", index=False)
-                
-        st.download_button(
-            label="📥 Download Certified CA Audit Dossier (.xlsx)",
-            data=output.getvalue(),
-            file_name=f"Tally_Audit_Dossier_March_{get_ist_now().year}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            type="primary"
-        )
-
     # Detailed Sub-Ledgers Tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Sales Register", 
         "📦 Purchase Register", 
         "⚠️ Bills Receivable & WhatsApp Recovery", 
-        "🏢 Bills Payable (Creditors & MSME)",
-        "📋 Stock Summary",
+        "🏢 Bills Payable (Creditors)", 
         "⚖️ Profit & Loss A/c"
     ])
-    
+
     with tab1:
-        if business_data["Sales_DF"] is not None:
-            st.dataframe(business_data["Sales_DF"], use_container_width=True, height=400)
+        if business_data["Sales_DF"] is not None and not business_data["Sales_DF"].empty:
+            st.dataframe(business_data["Sales_DF"], use_container_width=True, height=380)
         else:
             st.info("Sales transactions will populate once data is uploaded.")
 
     with tab2:
-        if business_data["Purchase_DF"] is not None:
-            st.dataframe(business_data["Purchase_DF"], use_container_width=True, height=400)
+        if business_data["Purchase_DF"] is not None and not business_data["Purchase_DF"].empty:
+            st.dataframe(business_data["Purchase_DF"], use_container_width=True, height=380)
         else:
             st.info("Purchase billing records will populate once data is uploaded.")
-            
+
     with tab3:
         if business_data["Receivables_DF"] is not None and not business_data["Receivables_DF"].empty:
             r_df = business_data["Receivables_DF"].copy()
-
             overdue_only = r_df[r_df["Days Overdue"] >= credit_days_threshold]
             if not overdue_only.empty:
-                st.markdown(f"""
-                    <div style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: 12px; padding: 14px 18px; margin-bottom: 15px;">
-                        <b style="color: #FB7185;">Critical Overdue Bills:</b> {len(overdue_only)} unpaid invoices have exceeded {credit_days_threshold} days credit period.
-                    </div>
-                """, unsafe_allow_html=True)
-
-                col_wa1, col_wa2, col_wa3 = st.columns([1.8, 1.2, 1.2])
+                col_wa1, col_wa2 = st.columns([2, 1.2])
                 with col_wa1:
-                    selected_party = st.selectbox("Select Overdue Debtor to Dispatch Notice:", overdue_only["Party Name"].unique(), key="chase_party_sel")
-                
-                party_bills = overdue_only[overdue_only["Party Name"] == selected_party]
-                total_party_due = party_bills["Pending Amount (₹)"].sum()
-                max_days = party_bills["Days Overdue"].max()
-                bill_refs = ", ".join(party_bills["Ref Invoice"].dropna().astype(str).unique()[:3])
-
+                    sel_p = st.selectbox("Select Overdue Debtor to Dispatch Notice:", overdue_only["Party Name"].unique())
                 with col_wa2:
-                    st.metric("Actual Unpaid Balance", f"₹{total_party_due:,.2f}", f"{max_days} Days Delay")
-
-                with col_wa3:
-                    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
-                    chase_msg = quote(
-                        f"Dear {selected_party},\n\n"
-                        f"This is a formal payment reminder regarding your unpaid pending bills of *₹{total_party_due:,.2f}* (Ref Invoices: {bill_refs}), "
-                        f"which have exceeded our agreed credit terms by *{max_days} days*.\n\n"
-                        f"Kindly arrange the RTGS/NEFT payment today to keep your account in good standing and avoid hold on further dispatches.\n\n"
-                        f"Regards,\nAccounts & Finance Department"
-                    )
-                    wa_chase_url = f"https://api.whatsapp.com/send?text={chase_msg}"
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    chase_msg = quote(f"Dear {sel_p},\n\nThis is a formal reminder regarding your overdue payment of bills exceeding {credit_days_threshold} days. Kindly arrange the RTGS/NEFT transfer.\n\nRegards,\nAccounts Team")
                     st.markdown(f"""
-                        <a href="{wa_chase_url}" target="_blank" class="whatsapp-chase-badge" style="padding: 10px 16px; font-size: 0.9rem;">
+                        <a href="https://api.whatsapp.com/send?text={chase_msg}" target="_blank" class="whatsapp-chase-badge">
                             💬 Send Legal Notice via WhatsApp
                         </a>
                     """, unsafe_allow_html=True)
-
-            st.dataframe(r_df, use_container_width=True, height=350)
+            st.dataframe(r_df, use_container_width=True, height=380)
         else:
-            st.success("🎉 All customer invoices are cleared and settled! Zero pending debtors.")
+            st.success("🎉 All customer invoices are reconciled and cleared!")
 
     with tab4:
-        # ----------------- TRUE BILLS PAYABLE (PABLES.XLS) CLEAN VIEW -----------------
         if business_data["Payables_DF"] is not None and not business_data["Payables_DF"].empty:
-            st.markdown("#### 🏢 Vendor Outstanding Bills (Payables)")
-            st.dataframe(business_data["Payables_DF"], use_container_width=True, height=400)
+            st.dataframe(business_data["Payables_DF"], use_container_width=True, height=380)
         else:
-            st.info("Upload 'pables.xls' (Tally Bills Payable export) to view exact supplier outstandings.")
+            st.info("Upload 'pables.xls' (Tally Bills Payable export) to view supplier liabilities.")
 
     with tab5:
-        if business_data["Stock_DF"] is not None and not business_data["Stock_DF"].empty:
-            st.dataframe(business_data["Stock_DF"], use_container_width=True, height=400)
-        else:
-            st.info("Stock records will display once inventory data is uploaded.")
-
-    with tab6:
         st.markdown(f"""
             <div class="info-card" style="padding: 24px;">
                 <div style="text-align: center; margin-bottom: 22px;">
@@ -1396,7 +797,7 @@ if uploaded_files:
                             <td>Purchase Accounts</td>
                             <td style="text-align: right; font-weight: 600; font-family: 'JetBrains Mono', monospace;">{business_data['Purchase']:,.2f}</td>
                             <td>Direct Incomes</td>
-                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">{business_data['Direct_Incomes']:,.2f}</td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">0.00</td>
                         </tr>
                         <tr>
                             <td>Closing Stock (Negative Balance)</td>
@@ -1421,7 +822,7 @@ if uploaded_files:
                         </tr>
                         <tr>
                             <td>Indirect Expenses</td>
-                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">{business_data['Indirect_Expenses']:,.2f}</td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">0.00</td>
                             <td>Gross Profit b/f</td>
                             <td style="text-align: right; font-weight: 700; color: #34D399; font-family: 'JetBrains Mono', monospace;">{gross_profit:,.2f}</td>
                         </tr>
@@ -1429,7 +830,7 @@ if uploaded_files:
                             <td>Nett Profit</td>
                             <td style="text-align: right; font-weight: 700; color: #38BDF8; font-family: 'JetBrains Mono', monospace;">{net_profit:,.2f}</td>
                             <td>Indirect Incomes</td>
-                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">{business_data['Indirect_Incomes']:,.2f}</td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', monospace;">0.00</td>
                         </tr>
                         <tr class="luxury-statement-total">
                             <td>Total</td>
@@ -1442,12 +843,5 @@ if uploaded_files:
             </div>
         """, unsafe_allow_html=True)
 else:
-    st.markdown("""
-        <div style="text-align: center; padding: 70px 20px; border: 1px dashed rgba(255,255,255,0.12); border-radius: 22px; margin-top: 25px; background: rgba(15, 23, 42, 0.35);">
-            <div style="font-size: 3rem; margin-bottom: 12px;">⚡</div>
-            <h3 style="font-weight: 800; font-size: 1.45rem; color: #F8FAFC;">Executive Intelligence Awaiting Data</h3>
-            <p style="color: #94A3B8; max-width: 520px; margin: auto; font-size: 0.95rem; line-height: 1.6;">
-                Drop your Tally <code>Transactions.xml</code> or audited Excel balance sheets into the sidebar to generate instant audit dossiers, inventory valuations & working capital telemetry.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+    # Awaiting Data State: Visual Guide
+    render_introduction_page()
