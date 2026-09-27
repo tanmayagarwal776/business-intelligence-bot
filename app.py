@@ -314,7 +314,7 @@ def verify_user_creds(username, password):
 c = conn.cursor()
 c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
-    add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")[cite: 14]
+    add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
 # ----------------- MULTI-VOUCHER (RECEIPT, JOURNAL, PAYMENT) RECONCILIATION ENGINE -----------------
 def extract_all_from_xml(uploaded_file):
@@ -360,7 +360,6 @@ def extract_all_from_xml(uploaded_file):
             except Exception:
                 pass
 
-        # Multi-Ledger Entries (Debit / Credit Analysis for Journal, Payment, Receipt)
         led_entries = re.findall(r'<ALLLEDGERENTRIES\.LIST\b[^>]*>(.*?)</ALLLEDGERENTRIES\.LIST>', block, re.DOTALL | re.IGNORECASE)
         ledger_splits = []
         for le in led_entries:
@@ -625,7 +624,7 @@ if not st.session_state["logged_in"]:
                 wa_link = f"https://api.whatsapp.com/send?phone=91{target_phone}&text={msg_body}"
 
                 st.markdown(f"""
-                    <div style="text-align: center; margin: 15px 0;">
+                    <div style="text-align: center; margin-left: 0; margin: 15px 0;">
                         <a href="{wa_link}" target="_blank" class="whatsapp-btn">
                             💬 Send Instant OTP to WhatsApp (+91 {target_phone})
                         </a>
@@ -1029,23 +1028,18 @@ if uploaded_files:
                 msme_overdue_xml = py_rows[py_rows["Days_Overdue"] >= 45]
                 business_data["MSME_Critical_Dues"] += msme_overdue_xml["Amount"].sum()
 
-            # ----------------- ADVANCED DEBIT-CREDIT SETTLEMENT ANALYSIS -----------------
-            # Track all credits across Receipt, Journal, Contra, and Credit Notes
             party_credits = {}
             for _, vch in fdf.iterrows():
                 v_low = str(vch.get("Vch Type", "")).lower()
                 splits = vch.get("Splits", [])
                 
-                # Agar Journal, Receipt, ya Credit Note me party credit hui hai
                 for sp in splits:
                     p_k = sp["ledger"]
                     amt = sp["amount"]
-                    # Tally me credit negative ya credit entry ke roop me hoti hai
                     if amt < 0 or any(k in v_low for k in ["receipt", "journal", "credit note"]):
                         c_val = abs(amt)
                         party_credits[p_k] = party_credits.get(p_k, 0.0) + c_val
 
-                # Fallback: Agar splits empty ho to direct party credit lo
                 if not splits and any(k in v_low for k in ["receipt", "journal", "credit note"]):
                     p_main = vch.get("Party Name", "")
                     if p_main:
