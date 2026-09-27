@@ -158,6 +158,20 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace;
     }
 
+    .whatsapp-btn {
+        display: block;
+        background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+        color: #FFFFFF !important;
+        text-align: center;
+        padding: 13px 20px;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 0.95rem;
+        text-decoration: none;
+        margin-top: 10px;
+        margin-bottom: 15px;
+    }
+
     .whatsapp-chase-badge {
         background: rgba(37, 211, 102, 0.15);
         color: #4ADE80 !important;
@@ -200,6 +214,45 @@ if "logged_in" not in st.session_state:
     st.session_state["generated_otp"] = ""
     st.session_state["temp_user"] = None
 
+# ----------------- ROLE-BASED ACCESS UI -----------------
+is_admin_active = st.session_state.get("logged_in") and st.session_state.get("role") == "admin"
+
+if is_admin_active:
+    st.markdown("""
+        <style>
+        header { visibility: visible !important; }
+        [data-testid="stToolbar"] { display: block !important; }
+        </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+        <style>
+        #MainMenu, footer, header { visibility: hidden !important; display: none !important; }
+        [data-testid="stToolbar"] { display: none !important; }
+        [data-testid="manage-app-button"] { display: none !important; }
+        button[kind="header"] { display: none !important; }
+        div[class*="viewerBadge"] { display: none !important; }
+        div[class*="ProfileBadge"] { display: none !important; }
+        iframe[title="streamlit_app"] ~ div { display: none !important; }
+        div[data-testid="stDecoration"] { display: none !important; }
+        div[data-testid="stStatusWidget"] { display: none !important; }
+        </style>
+        <script>
+        function removeManageButton() {
+            const buttons = window.parent.document.querySelectorAll('button, div');
+            buttons.forEach(el => {
+                if (el.innerText && el.innerText.includes('Manage app')) {
+                    el.style.display = 'none';
+                    el.remove();
+                }
+            });
+            const toolbars = window.parent.document.querySelectorAll('[data-testid="stToolbar"], header');
+            toolbars.forEach(el => { el.style.display = 'none'; });
+        }
+        setInterval(removeManageButton, 300);
+        </script>
+    """, unsafe_allow_html=True)
+
 # ----------------- DATABASE -----------------
 def init_db():
     conn = sqlite3.connect("tally_users_v3.db", check_same_thread=False)
@@ -238,14 +291,37 @@ def get_pricing_config():
     p_yearly = int(y_row[0]) if y_row else 2999
     return p_monthly, p_yearly
 
+def update_pricing_config(monthly_val, yearly_val):
+    c = conn.cursor()
+    c.execute("UPDATE system_config SET value=? WHERE key='price_monthly'", (str(monthly_val),))
+    c.execute("UPDATE system_config SET value=? WHERE key='price_yearly'", (str(yearly_val),))
+    conn.commit()
+
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+def get_client_device_hash(username):
+    headers = st.context.headers
+    user_agent = headers.get("User-Agent", "standard-browser")
+    accept_lang = headers.get("Accept-Language", "en")
+    raw_fingerprint = f"{user_agent}_{accept_lang}"
+    return hashlib.sha256(raw_fingerprint.encode()).hexdigest()
+
+def check_device_trial_exists(device_hash):
+    c = conn.cursor()
+    c.execute("SELECT username FROM users WHERE device_hash=? AND role != 'admin'", (device_hash,))
+    return c.fetchone()
 
 def add_user(username, password, phone, role="client", status="trial", plan="Free Trial (7 Days)", device_hash="", txn_id=""):
     c = conn.cursor()
     ist_time_str = get_ist_now_str()
     c.execute("INSERT OR REPLACE INTO users (username, password, phone, role, status, plan, created_at, device_hash, txn_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
               (username, hash_pw(password), phone, role, status, plan, ist_time_str, device_hash, txn_id))
+    conn.commit()
+
+def update_user_payment(username, plan, txn_id):
+    c = conn.cursor()
+    c.execute("UPDATE users SET plan=?, txn_id=?, status='pending' WHERE username=?", (plan, txn_id, username))
     conn.commit()
 
 def verify_user_creds(username, password):
@@ -259,7 +335,7 @@ c.execute("SELECT * FROM users WHERE username='tanmay_admin'")
 if not c.fetchone():
     add_user("tanmay_admin", "admin123", "7016882039", role="admin", status="approved", plan="Lifetime Enterprise", device_hash="ADMIN_DEV", txn_id="ADMIN")
 
-# ----------------- TALLY PARSER -----------------
+# ----------------- PARSERS -----------------
 def extract_all_from_xml(uploaded_file):
     uploaded_file.seek(0)
     raw_content = uploaded_file.read()
@@ -402,46 +478,397 @@ def load_tally_file(uploaded_file):
     df = df.reset_index(drop=True)
     return df, pd.DataFrame(), pd.DataFrame()
 
-# ----------------- AUTHENTICATION -----------------
+def generate_upi_qr(vpa, name, amount):
+    upi_url = f"upi://pay?pa={vpa}&pn={quote(name)}&am={amount}&cu=INR"
+    qr = qrcode.QRCode(version=1, box_size=5, border=2)
+    qr.add_data(upi_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO()
+    img.save(buf)
+    return buf.getvalue()
+
+# ----------------- AUTHENTICATION (WHATSAPP OTP RESTORED) -----------------
 if not st.session_state["logged_in"]:
-    st.markdown("<div style='text-align:center; padding: 40px;'><h1>Tally Executive Suite</h1><p>Enter credentials to access financial intelligence</p></div>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1.6, 1])
+    st.markdown("""
+        <div style="text-align: center; margin-top: 40px; margin-bottom: 25px;">
+            <div class="badge-chip badge-indigo">WHATSAPP SECURE ENTERPRISE SUITE</div>
+            <h1 style="font-weight: 800; font-size: 2.8rem; letter-spacing: -0.02em; margin-bottom: 8px;">Tally Executive Suite</h1>
+            <p style="color: #94A3B8; font-size: 1.05rem;">Turn raw Tally exports into executive P&L, stock intelligence & CA dossiers</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 1.8, 1])
     with col2:
-        u = st.text_input("Username", value="tanmay_admin")
-        p = st.text_input("Password", type="password", value="admin123")
-        if st.button("Direct Login", use_container_width=True, type="primary"):
-            res = verify_user_creds(u, p)
-            if res:
-                st.session_state["logged_in"] = True
-                st.session_state["username"] = u
-                st.session_state["role"] = res[1]
-                st.session_state["status"] = res[2]
-                st.session_state["plan"] = res[3]
-                st.session_state["created_at"] = res[4]
-                st.rerun()
+        menu = ["Sign In", "Start 7-Day Free Trial"]
+        choice = st.segmented_control("Access Mode", menu, default="Sign In")
+
+        if choice == "Sign In":
+            st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+            u = st.text_input("Username", placeholder="Enter business ID")
+            p = st.text_input("Password", type="password", placeholder="••••••••")
+            phone = st.text_input("Registered 10-Digit Mobile No.", placeholder="e.g. 9876543210")
+
+            if not st.session_state["otp_sent"]:
+                if st.button("Generate Login OTP via WhatsApp", use_container_width=True, type="primary"):
+                    if u and p and phone and len(phone.strip()) >= 10:
+                        res = verify_user_creds(u, p)
+                        if res:
+                            reg_phone, role, status, plan, created_at = res
+                            otp = str(random.randint(100000, 999999))
+                            st.session_state["generated_otp"] = otp
+                            st.session_state["temp_user"] = {
+                                "username": u, "phone": phone, "role": role, 
+                                "status": status, "plan": plan, "created_at": created_at
+                            }
+                            st.session_state["otp_sent"] = True
+                            st.rerun()
+                        else:
+                            st.error("Invalid username or password.")
+                    else:
+                        st.error("Please provide valid username, password and 10-digit phone number.")
             else:
-                st.error("Invalid credentials")
+                target_phone = phone.strip()[-10:]
+                msg_body = quote(f"Hello, your Tally Executive Suite Login OTP is: {st.session_state['generated_otp']}. Valid for 10 minutes.")
+                wa_link = f"https://api.whatsapp.com/send?phone=91{target_phone}&text={msg_body}"
+
+                st.markdown(f"""
+                    <a href="{wa_link}" target="_blank" class="whatsapp-btn">
+                        💬 Click Here: Send OTP to My WhatsApp (+91 {target_phone})
+                    </a>
+                """, unsafe_allow_html=True)
+
+                with st.expander("👁️ Cannot access WhatsApp? Click to view OTP"):
+                    st.info(f"Verification OTP: **`{st.session_state['generated_otp']}`**")
+
+                entered_otp = st.text_input("Enter 6-Digit Verification OTP", placeholder="••••••")
+                col_sub1, col_sub2 = st.columns(2)
+                with col_sub1:
+                    if st.button("Verify OTP & Login", use_container_width=True, type="primary"):
+                        if entered_otp.strip() == st.session_state["generated_otp"]:
+                            usr = st.session_state["temp_user"]
+                            status = usr["status"]
+                            is_expired = False
+                            if status == "trial":
+                                try:
+                                    dt_clean = usr["created_at"].split()[0]
+                                    c_date = datetime.datetime.strptime(dt_clean, "%Y-%m-%d").date()
+                                    if (get_ist_now().date() - c_date).days >= 7:
+                                        is_expired = True
+                                        status = "expired"
+                                        c = conn.cursor()
+                                        c.execute("UPDATE users SET status='expired' WHERE username=?", (usr["username"],))
+                                        conn.commit()
+                                except Exception:
+                                    pass
+
+                            st.session_state["logged_in"] = True
+                            st.session_state["username"] = usr["username"]
+                            st.session_state["phone"] = usr["phone"]
+                            st.session_state["role"] = usr["role"]
+                            st.session_state["status"] = "expired" if is_expired else status
+                            st.session_state["plan"] = usr["plan"]
+                            st.session_state["created_at"] = usr["created_at"]
+                            st.session_state["otp_sent"] = False
+                            st.rerun()
+                        else:
+                            st.error("Incorrect OTP entered.")
+                with col_sub2:
+                    if st.button("Resend / Reset", use_container_width=True):
+                        st.session_state["otp_sent"] = False
+                        st.rerun()
+
+            st.markdown("""
+                <div style="text-align: center; margin-top: 15px;">
+                    <span style="color: #94A3B8; font-size: 0.85rem;">📞 Helpline & Support:</span>
+                    <a href="tel:7016882039" style="color: #818CF8; font-weight: 700; text-decoration: none;">+91 7016882039</a>
+                </div>
+            """, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        elif choice == "Start 7-Day Free Trial":
+            st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+            new_u = st.text_input("Choose Username", placeholder="e.g. industrial_trade")
+            new_p = st.text_input("Choose Password", type="password", placeholder="••••••••")
+            new_phone = st.text_input("Mobile Number (WhatsApp Enabled)", placeholder="10-digit mobile number")
+            
+            st.caption("🔒 7-day full access included. Instant WhatsApp Verification.")
+            if st.button("Register & Activate Trial", use_container_width=True, type="primary"):
+                if new_u and new_p and new_phone and len(new_phone.strip()) >= 10:
+                    c = conn.cursor()
+                    c.execute("SELECT * FROM users WHERE username=?", (new_u,))
+                    if c.fetchone():
+                        st.error("Username is already claimed.")
+                    else:
+                        dev_hash = get_client_device_hash(new_u)
+                        prev_acc = check_device_trial_exists(dev_hash)
+                        if prev_acc:
+                            st.error(f"🚫 Workstation Trial Exists (`{prev_acc[0]}`). Please log in with existing account.")
+                        else:
+                            add_user(new_u, new_p, new_phone.strip(), role="client", status="trial", plan="Free Trial (7 Days)", device_hash=dev_hash, txn_id="FREE_TRIAL")
+                            st.success("🎉 Account activated! Switch to 'Sign In' to login via WhatsApp OTP.")
+                else:
+                    st.error("Please fill all fields including 10-digit mobile number.")
+            st.markdown("</div>", unsafe_allow_html=True)
+    st.stop()
+
+# ----------------- TRIAL EXPIRED PAYMENT SCREEN -----------------
+current_monthly_price, current_yearly_price = get_pricing_config()
+
+if st.session_state.get("status") == "expired":
+    st.markdown("""
+        <div style="text-align: center; margin-top: 30px; margin-bottom: 25px;">
+            <div class="badge-chip badge-rose">TRIAL PERIOD EXPIRED</div>
+            <h2 style="font-weight: 700; margin-top: 10px;">Renew Your Executive Access</h2>
+            <p style="color: #94A3B8;">Your 7-day evaluation has concluded. Select an ongoing license below to continue analysis.</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns([1, 1.8, 1])
+    with c2:
+        st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+        plan_sel = st.radio("Select Subscription Plan:", [
+            f"Monthly License — ₹{current_monthly_price:,} / Month", 
+            f"Annual Enterprise — ₹{current_yearly_price:,} / Year (Best Value)"
+        ])
+        amt = current_monthly_price if str(current_monthly_price) in plan_sel else current_yearly_price
+        p_name = f"Monthly (₹{amt})" if amt == current_monthly_price else f"Yearly (₹{amt})"
+
+        col_q1, col_q2 = st.columns([1.2, 1])
+        with col_q1:
+            st.markdown(f"**Amount Due:** `₹{amt:,}`")
+            st.markdown("**UPI VPA:** `tanmayagarwal776@okhdfcbank`")
+            pay_tx = st.text_input("12-Digit Bank / UPI UTR Ref No:")
+        with col_q2:
+            qr_img = generate_upi_qr("tanmayagarwal776@okhdfcbank", "Tanmay Agarwal", amt)
+            st.image(qr_img, width=170)
+
+        if st.button("Submit License Verification", use_container_width=True, type="primary"):
+            if pay_tx.strip():
+                update_user_payment(st.session_state["username"], p_name, pay_tx.strip())
+                st.success("✅ Payment reference logged. Account unlocks immediately upon admin audit.")
+            else:
+                st.error("Valid transaction reference required.")
+
+        st.markdown("""
+            <div style="text-align: center; margin-top: 15px;">
+                <span style="color: #94A3B8; font-size: 0.85rem;">💬 Payment Query?</span><br>
+                <b>Customer Care:</b> <a href="https://wa.me/917016882039" style="color: #34D399; font-weight: 700; text-decoration: none;">+91 7016882039</a>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("Log Out"):
+            st.session_state.clear()
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
-    st.markdown(f"### Workspace: `{st.session_state['username']}`")
-    if st.button("Sign Out", use_container_width=True):
+    st.markdown(f"""
+        <div style="padding: 12px 4px 18px 4px;">
+            <div style="font-size: 0.8rem; color: #64748B; font-weight: 600;">ACTIVE WORKSPACE</div>
+            <div style="font-size: 1.15rem; font-weight: 700; color: #F8FAFC;">{st.session_state['username']}</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if st.session_state["status"] == "trial":
+        try:
+            dt_clean = st.session_state.get("created_at", "").split()[0]
+            c_date = datetime.datetime.strptime(dt_clean, "%Y-%m-%d").date()
+            days_left = max(0, 7 - (get_ist_now().date() - c_date).days)
+        except Exception:
+            days_left = 7
+        st.markdown(f'<div class="badge-chip badge-amber">Trial: {days_left} Days Left</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="badge-chip badge-emerald">{st.session_state.get("plan", "Enterprise Tier")}</div>', unsafe_allow_html=True)
+
+    if st.button("Sign Out", use_container_width=True, key="admin_app_signout"):
         st.session_state.clear()
         st.rerun()
 
     st.markdown("---")
-    nav_selection = st.radio("Navigation View", ["📊 Live Analytics Dashboard", "📖 App Guide & Introduction"])
 
+    if st.session_state["role"] == "admin":
+        admin_mode = st.radio("Console Navigation", [
+            "📊 Analytics Dashboard", 
+            "👥 User Management & CRM", 
+            "💳 License Approvals",
+            "📖 App Guide & Introduction"
+        ], key="admin_console_nav_radio")
+    else:
+        admin_mode = st.radio("Navigation View", [
+            "📊 Analytics Dashboard", 
+            "📖 App Guide & Introduction"
+        ], key="client_nav_radio")
+
+    st.markdown("#### ⚙️ Business Rules")
     credit_days_threshold = st.slider("Debtor Benchmark (Days)", 15, 180, 45, 5)
 
-    st.markdown("#### 📂 Upload Tally Exports")
+    st.markdown("---")
+    st.markdown("#### 📂 Tally Data Ingestion")
     uploaded_files = st.file_uploader(
         "Upload Tally Files (.xml, .xlsx, .xls, .csv)",
         type=["xlsx", "xls", "csv", "xml"],
         accept_multiple_files=True,
         help="Upload Transactions.xml, Bills.xlsx, aur pables.xls"
     )
+
+    st.markdown("---")
+    st.markdown("""
+        <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 14px; text-align: center;">
+            <div style="font-size: 0.72rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Direct CA Support</div>
+            <div style="font-size: 1.1rem; font-weight: 800; color: #38BDF8; margin-top: 4px; font-family: 'JetBrains Mono', monospace;">7016882039</div>
+            <div style="margin-top: 8px;">
+                <a href="https://wa.me/917016882039" target="_blank" style="background: rgba(34, 197, 94, 0.2); color: #4ADE80; padding: 5px 12px; border-radius: 8px; text-decoration: none; font-size: 0.78rem; font-weight: 700; border: 1px solid rgba(34, 197, 94, 0.35);">WhatsApp</a>
+                <a href="tel:7016882039" style="background: rgba(99, 102, 241, 0.2); color: #818CF8; padding: 5px 12px; border-radius: 8px; text-decoration: none; font-size: 0.78rem; font-weight: 700; border: 1px solid rgba(99, 102, 241, 0.35); margin-left: 6px;">Call</a>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+# ----------------- ADMIN: USER CRM + PRICING CONTROLLER (RESTORED) -----------------
+if st.session_state["role"] == "admin" and admin_mode == "👥 User Management & CRM":
+    st.markdown("""
+        <div class="executive-topbar">
+            <div>
+                <h2 style="font-weight: 800; margin: 0; font-size: 1.7rem;">👥 User Directory & Subscription CRM</h2>
+                <div style="color: #94A3B8; font-size: 0.88rem; margin-top: 3px;">Live customer telemetry, Accurate IST Timestamps & Pricing Control</div>
+            </div>
+            <div class="badge-chip badge-indigo">Admin Portal</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    c = conn.cursor()
+    all_users = c.execute("SELECT username, phone, role, status, plan, created_at, txn_id FROM users").fetchall()
+
+    total_u = len(all_users)
+    trial_u = sum(1 for x in all_users if x[3] == "trial")
+    paid_u = sum(1 for x in all_users if x[3] == "approved")
+    expired_u = sum(1 for x in all_users if x[3] in ["expired", "pending"])
+
+    crm1, crm2, crm3, crm4 = st.columns(4)
+    crm1.metric("Registered Accounts", total_u)
+    crm2.metric("Active Trials", trial_u)
+    crm3.metric("Paid Subscriptions", paid_u)
+    crm4.metric("Pending / Expired", expired_u)
+
+    st.markdown("---")
+
+    # FEATURE 1: DYNAMIC SUBSCRIPTION PRICING MANAGER
+    st.markdown("### 💰 Subscription Pricing Manager (Live Store Controller)")
+    st.caption("Admin portal se subscription rates instantly update karein. Clients ko renew screen par yahi naye rates dikhenge.")
+    
+    col_p1, col_p2, col_p3 = st.columns([1.5, 1.5, 1.2])
+    with col_p1:
+        new_monthly = st.number_input("Monthly License Price (INR ₹):", min_value=99, max_value=99999, value=current_monthly_price, step=50)
+    with col_p2:
+        new_yearly = st.number_input("Annual Enterprise Price (INR ₹):", min_value=499, max_value=499999, value=current_yearly_price, step=100)
+    with col_p3:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("Update Store Prices", type="primary", use_container_width=True):
+            update_pricing_config(new_monthly, new_yearly)
+            st.success(f"✅ Subscription rates updated: Monthly = ₹{new_monthly:,} | Yearly = ₹{new_yearly:,}")
+            st.rerun()
+
+    st.markdown("---")
+
+    # FEATURE 2: CLIENT PORTFOLIO MASTER TABLE WITH ACCURATE IST
+    st.markdown("### 📋 Client Portfolio Master Table (Indian Standard Time)")
+
+    table_data = []
+    now_ist = get_ist_now().date()
+
+    for u_name, u_ph, u_role, u_stat, u_pl, u_cr, u_tx in all_users:
+        days_rem = "-"
+        if u_stat == "trial":
+            try:
+                dt_clean = u_cr.split()[0]
+                c_date = datetime.datetime.strptime(dt_clean, "%Y-%m-%d").date()
+                days_left = max(0, 7 - (now_ist - c_date).days)
+                days_rem = f"{days_left} Days Left"
+            except Exception:
+                days_rem = "Active"
+        elif u_stat == "approved":
+            days_rem = "Lifetime / Active"
+        elif u_stat == "expired":
+            days_rem = "0 Days (Expired)"
+        elif u_stat == "pending":
+            days_rem = "Pending Verification"
+
+        table_data.append({
+            "Username": u_name,
+            "Mobile No.": u_ph if u_ph else "-",
+            "Role": u_role.upper(),
+            "Status": u_stat.upper(),
+            "Plan Type": u_pl,
+            "Entitlement Balance": days_rem,
+            "Registration Date & Time (IST)": u_cr,
+            "Bank Ref": u_tx if u_tx else "N/A"
+        })
+
+    st.dataframe(pd.DataFrame(table_data), use_container_width=True, height=350)
+
+    st.markdown("---")
+    st.markdown("### 🛠️ Instant User Entitlement Override")
+    
+    non_admin_usernames = [x[0] for x in all_users if x[0] != "tanmay_admin"]
+    if non_admin_usernames:
+        col_ov1, col_ov2, col_ov3 = st.columns([1.5, 1.5, 1])
+        with col_ov1:
+            target_user = st.selectbox("Select Client:", non_admin_usernames)
+        with col_ov2:
+            new_status_action = st.selectbox("Assign Action:", [
+                f"Grant Annual Enterprise (₹{current_yearly_price})",
+                f"Grant Monthly License (₹{current_monthly_price})",
+                "Reset 7-Day Free Trial",
+                "Expire / Lock Account"
+            ])
+        with col_ov3:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            if st.button("Execute Override", type="primary", use_container_width=True):
+                c = conn.cursor()
+                now_str = get_ist_now_str()
+                if "Annual" in new_status_action:
+                    c.execute("UPDATE users SET status='approved', plan=? WHERE username=?", (f"Annual Enterprise (₹{current_yearly_price})", target_user))
+                elif "Monthly" in new_status_action:
+                    c.execute("UPDATE users SET status='approved', plan=? WHERE username=?", (f"Monthly License (₹{current_monthly_price})", target_user))
+                elif "Reset" in new_status_action:
+                    c.execute("UPDATE users SET status='trial', plan='Free Trial (7 Days)', created_at=? WHERE username=?", (now_str, target_user))
+                elif "Expire" in new_status_action:
+                    c.execute("UPDATE users SET status='expired' WHERE username=?", (target_user,))
+                conn.commit()
+                st.success(f"Updated status for {target_user} successfully!")
+                st.rerun()
+    else:
+        st.info("No client accounts registered yet.")
+
+    st.stop()
+
+# ----------------- ADMIN: LICENSE QUEUE (RESTORED) -----------------
+if st.session_state["role"] == "admin" and admin_mode == "💳 License Approvals":
+    st.markdown("## 💳 License Verification Queue")
+    c = conn.cursor()
+    pending_users = c.execute("SELECT username, phone, plan, txn_id, status FROM users WHERE status='pending'").fetchall()
+    
+    if pending_users:
+        st.info(f"Requests Awaiting Verification: {len(pending_users)}")
+        for u_name, u_ph, u_plan, tx_id, stat in pending_users:
+            with st.container():
+                st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+                col_u, col_ph, col_pl, col_tx, col_btn = st.columns([2, 1.5, 2, 2.5, 1.5])
+                col_u.markdown(f"**Client:** `{u_name}`")
+                col_ph.markdown(f"**Phone:** `{u_ph}`")
+                col_pl.markdown(f"**Tier:** `{u_plan}`")
+                col_tx.markdown(f"**UTR:** `{tx_id if tx_id else 'Awaiting'}`")
+                if col_btn.button("Grant License", key=f"appr_{u_name}", type="primary"):
+                    c.execute("UPDATE users SET status='approved' WHERE username=?", (u_name,))
+                    conn.commit()
+                    st.success(f"Access granted for {u_name}")
+                    st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.success("All client licenses are active. No verification backlog.")
+    st.stop()
 
 # ----------------- INTRODUCTION & USER MANUAL PAGE -----------------
 def render_introduction_page():
@@ -516,8 +943,7 @@ def render_introduction_page():
         </div>
     """, unsafe_allow_html=True)
 
-# ----------------- ROUTING LOGIC -----------------
-if nav_selection == "📖 App Guide & Introduction":
+if admin_mode == "📖 App Guide & Introduction":
     render_introduction_page()
     st.stop()
 
@@ -556,7 +982,6 @@ if uploaded_files:
         elif fname.endswith('.xml'):
             xml_vouchers_list.append(fdf)
 
-    # 1. PARSE REVENUE & PURCHASES
     for v_df in xml_vouchers_list:
         s_rows = v_df[v_df["Vch Type"].astype(str).str.lower().str.contains("sales|sale", na=False)]
         p_rows = v_df[v_df["Vch Type"].astype(str).str.lower().str.contains("purchase|purch", na=False)]
@@ -572,7 +997,6 @@ if uploaded_files:
                 business_data["Top_Customer"] = top_c.index[0]
                 business_data["Top_Customer_Amt"] = top_c.iloc[0]
 
-        # FALLBACK RECONCILIATION FOR XML
         if not excel_receivable_list:
             party_debits = {}
             party_credits = {}
@@ -611,7 +1035,6 @@ if uploaded_files:
                 business_data["Overdue"] = ov["Pending Amount (₹)"].sum()
                 business_data["Critical_Count"] = len(ov)
 
-    # 2. OVERRIDE WITH DEDICATED BILLS RECEIVABLE
     if excel_receivable_list:
         rec_ex = pd.concat(excel_receivable_list, ignore_index=True)
         r_rows = []
@@ -634,7 +1057,6 @@ if uploaded_files:
             business_data["Overdue"] = ov["Pending Amount (₹)"].sum()
             business_data["Critical_Count"] = len(ov)
 
-    # 3. OVERRIDE WITH DEDICATED BILLS PAYABLE (PABLES.XLS)
     if excel_payable_list:
         pay_ex = pd.concat(excel_payable_list, ignore_index=True)
         p_rows = []
@@ -654,7 +1076,6 @@ if uploaded_files:
             business_data["Payables_DF"] = direct_p
             business_data["Payables"] = direct_p["Pending Amount (₹)"].sum()
 
-    # 4. TALLY PROFIT & LOSS MATHEMATICS
     calculated_gross_profit = business_data["Sales"] - business_data["Purchase"]
     if business_data["Closing_Stock"] == 0.0 and business_data["Purchase"] > 0:
         business_data["Closing_Stock"] = round(business_data["Sales"] - business_data["Purchase"] - calculated_gross_profit, 2)
@@ -662,7 +1083,6 @@ if uploaded_files:
     gross_profit = calculated_gross_profit
     net_profit = gross_profit
 
-    # Top Executive Banner
     st.markdown(f"""
         <div class="executive-topbar">
             <div>
@@ -677,7 +1097,6 @@ if uploaded_files:
         </div>
     """, unsafe_allow_html=True)
 
-    # 4 Core KPI Cards
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(f"""
@@ -690,7 +1109,7 @@ if uploaded_files:
     with k2:
         st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label"><span>Actual Debtor Dues</span><span class="badge-chip badge-indigo">Pending Bills</span></div>
+                <div class="metric-label"><span>Actual Debtor Dues</span><span class="badge-chip badge-indigo">Receivables</span></div>
                 <div class="metric-val">₹{business_data['Outstanding']:,.2f}</div>
                 <div class="metric-sub" style="color: #818CF8;">● Net Pending Customer Bills</div>
             </div>
@@ -712,7 +1131,6 @@ if uploaded_files:
             </div>
         """, unsafe_allow_html=True)
 
-    # Margin Spread
     st.markdown("### 📊 Margin Telemetry & Operating Spread (Tally P&L Mode)")
     pl_c1, pl_c2, pl_c3, pl_c4 = st.columns(4)
     pl_c1.metric("Gross Turnover", f"₹{business_data['Sales']:,.2f}")
@@ -722,7 +1140,6 @@ if uploaded_files:
 
     st.markdown("---")
 
-    # Detailed Sub-Ledgers Tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Sales Register", 
         "📦 Purchase Register", 
@@ -843,5 +1260,4 @@ if uploaded_files:
             </div>
         """, unsafe_allow_html=True)
 else:
-    # Awaiting Data State: Visual Guide
     render_introduction_page()
